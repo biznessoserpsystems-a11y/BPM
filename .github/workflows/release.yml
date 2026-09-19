@@ -1,0 +1,128 @@
+name: Build desktop installers and server bundle
+
+# Triggers on pushing a version tag, e.g.:
+#   git tag v1.0.0 && git push origin v1.0.0
+# That's the whole "push to GitHub to get the installer" step — this builds
+# on GitHub's own runners (a real Windows machine for the .exe, a real Mac
+# for the .dmg) rather than cross-compiling, and attaches the finished
+# installers to a GitHub Release automatically.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Also runs by hand from the Actions tab, without needing a tag — useful
+  # for a test build before you're ready to cut a real release.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build-script: build:win
+            artifact-glob: desktop/dist/*.exe
+          - os: macos-latest
+            build-script: build:mac
+            artifact-glob: desktop/dist/*.dmg
+          - os: ubuntu-latest
+            build-script: build:linux
+            artifact-glob: desktop/dist/*.AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm install
+
+      - name: Build installer
+        working-directory: desktop
+        run: npm run ${{ matrix.build-script }}
+        env:
+          # electron-builder's own default GitHub publishing isn't used
+          # here (see the upload step below instead) — this token is only
+          # needed if that's turned on later via a `publish` config.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach installer to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact-glob }}
+          # Lets `workflow_dispatch` runs (no tag) still upload a build as
+          # a draft you can inspect, instead of failing with no tag to
+          # attach to.
+          draft: ${{ github.ref_type != 'tag' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Produces a zip containing the app server + a portable Node.js runtime
+  # + a pre-migrated database, so the machine that runs it never needs
+  # Node.js installed and never needs internet access — see
+  # docs/offline-deployment.md for why this exists alongside the (thin,
+  # server-dependent) desktop client built above.
+  build-server-bundle:
+    runs-on: windows-latest
+    env:
+      # Pin a specific Node LTS build for the portable runtime bundled
+      # onto the end user's machine — bump deliberately, not silently,
+      # since it's what actually executes on pharmacy computers.
+      BUNDLED_NODE_VERSION: 22.11.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build template database
+        run: node scripts/build-template-db.js
+
+      - name: Build Next.js standalone server
+        run: npm run build
+
+      - name: Download portable Node.js runtime
+        shell: pwsh
+        run: |
+          $url = "https://nodejs.org/dist/v$env:BUNDLED_NODE_VERSION/node-v$env:BUNDLED_NODE_VERSION-win-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile node-portable.zip
+          Expand-Archive -Path node-portable.zip -DestinationPath node-portable
+
+      - name: Assemble server bundle
+        shell: pwsh
+        run: |
+          $bundle = "bundle"
+          New-Item -ItemType Directory -Path $bundle | Out-Null
+          Copy-Item -Recurse ".next/standalone" "$bundle/app"
+          Copy-Item "db/template.db" "$bundle/template.db"
+          Copy-Item "scripts/server-bundle/start-server.js" "$bundle/start-server.js"
+          Copy-Item "scripts/server-bundle/start-server.bat" "$bundle/start-server.bat"
+          Copy-Item "scripts/server-bundle/README.txt" "$bundle/README.txt"
+          $nodeDir = Get-ChildItem node-portable | Select-Object -First 1
+          Copy-Item "$($nodeDir.FullName)/node.exe" "$bundle/node.exe"
+          Compress-Archive -Path "$bundle/*" -DestinationPath "BiznessShopOS-Server-Windows.zip"
+
+      - name: Attach server bundle to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: BiznessShopOS-Server-Windows.zip
+          draft: ${{ github.ref_type != 'tag' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

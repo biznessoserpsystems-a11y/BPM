@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { PharmacyServiceError } from './errors';
 
 type Tx = PrismaClient | Prisma.TransactionClient;
@@ -57,6 +58,19 @@ export async function ensureRecentPeriods(tx: Tx, monthsBack = 12): Promise<void
   }
 
   if (toCreate.length > 0) {
-    await tx.accountingPeriod.createMany({ data: toCreate, skipDuplicates: true });
+    try {
+      // SQLite doesn't support `skipDuplicates` on createMany (Postgres/
+      // MySQL only — Prisma's generated types correctly reject it here).
+      // The `existingNames` filter above already avoids duplicates in the
+      // common case; this catch only matters if two callers race (e.g.
+      // two people loading the periods list at once) and both try to
+      // insert the same not-yet-existing period — a P2002 there just
+      // means the other caller won the race, which is fine to ignore.
+      await tx.accountingPeriod.createMany({ data: toCreate });
+    } catch (error) {
+      const isUniqueConstraintError =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+      if (!isUniqueConstraintError) throw error;
+    }
   }
 }

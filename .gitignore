@@ -12,6 +12,9 @@ node_modules/
 .next/
 out/
 
+# Desktop (Electron) build output — see desktop/.gitignore too
+desktop/dist/
+
 # Local SQLite databases (dev/test data, not source)
 db/*.db
 prisma/*.db

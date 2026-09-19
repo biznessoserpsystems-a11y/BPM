@@ -132,3 +132,58 @@ Stage Summary:
 - NOTE: could not run `prisma generate` / `db:push` in this sandbox (binaries.prisma.sh is
   not on the allowed network egress list) — run `npm run db:generate && npm run db:push`
   locally before starting the app
+
+---
+Task: Fix CI type-check failures + add desktop installer (Electron + GitHub Actions release)
+
+CI fixes:
+- vitest.config.ts: Vitest 4 removed `poolOptions`/`singleFork` entirely (confirmed against
+  Vitest's own migration guide). Replaced `pool: 'forks', poolOptions: { forks: { singleFork:
+  true } }` with `pool: 'forks', maxWorkers: 1` — the direct v4 replacement for pinning to one
+  worker. Deliberately did NOT set `isolate: false`, which several other projects' migrations
+  conflated with this same change — isolate governs per-file module-registry freshness, an
+  unrelated concern from "don't run two SQLite writers at once" that this config is actually
+  solving for, and changing it risks leaking state between test files for no benefit.
+- src/lib/accounting-period.ts: `createMany({ ..., skipDuplicates: true })` — skipDuplicates
+  is not supported on SQLite (Postgres/MySQL only), which is why the real (Prisma-generated)
+  client types rejected `true` here as `never`. Removed skipDuplicates; wrapped the createMany
+  in a try/catch that swallows a P2002 unique-constraint error specifically (the only case
+  that can still race now that skipDuplicates is gone: two concurrent callers both seeing the
+  same not-yet-existing period and both trying to insert it — harmless, the loser's insert
+  failing is expected, not a bug). Also switched the `Prisma` import from `import type` to a
+  regular import, since `Prisma.PrismaClientKnownRequestError` is needed as a runtime value
+  for the instanceof check, matching the existing pattern already used in src/lib/api-error.ts.
+- Confirmed clean via `npx tsc --noEmit`, after filtering out the known artifact class of
+  errors this sandbox produces because it can't reach binaries.prisma.sh to regenerate a real
+  Prisma client (same limitation noted in earlier sessions) — those aren't real bugs.
+
+Desktop installer:
+- Added desktop/ as a separate, independent package (own package.json/lockfile/node_modules)
+  — NOT merged into the main app's dependencies, to avoid bloating the Next.js app's install
+  with Electron's large dependency tree and to avoid any risk to the existing CI pipeline.
+- desktop/main.js: a thin-client Electron shell. Deliberately does NOT bundle the Next.js
+  server/Prisma/database — connects to a Bizness-Ph-OS server running elsewhere (LAN or
+  hosted), because this system is multi-branch/multi-user sharing one ledger, and a bundled
+  local database per install would silently fragment data the moment more than one till is
+  in use. Handles: first-run server-address setup screen, persisted config in userData,
+  a friendly offline/retry screen instead of Chromium's default network-error page, and a
+  Change Server menu item.
+- Icons generated from public/brand/logo-icon.png: desktop/build/icon.ico (Windows, multi-
+  resolution) and icon.png (Linux, and electron-builder's macOS icon source).
+- .github/workflows/release.yml: triggers on pushing a `v*` tag (or manual dispatch), builds
+  on windows-latest/macos-latest/ubuntu-latest (native per-platform runners rather than
+  cross-compiling), attaches the resulting .exe/.dmg/.AppImage to a GitHub Release
+  automatically via softprops/action-gh-release.
+- Verified end-to-end locally: `npm install` in desktop/ resolves cleanly, and a real
+  electron-builder Linux --dir build was run and inspected — confirmed the packaged
+  app.asar contains exactly main.js, preload.js, package.json, and the icon, and produced a
+  working native ELF executable. Gives strong confidence the Windows/Mac targets (built on
+  their native GitHub-hosted runners, not tested directly here) will resolve the same way.
+- docs/desktop-app.md added explaining the thin-client architecture decision, first-run
+  flow, how to cut a release (tag push), and local dev/build instructions.
+
+NOTE: did not touch .github/workflows/ci.yml — it wasn't present in this zip (only exists on
+the actual GitHub remote per the CI screenshots shared), and recreating it from partial
+screenshot evidence risked clobbering whatever's actually there now. Only release.yml (a new,
+separate file) was added — merge desktop/ and .github/workflows/release.yml into the existing
+repo structure rather than replacing the whole .github/ folder.

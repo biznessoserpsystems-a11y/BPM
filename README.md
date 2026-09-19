@@ -94,6 +94,17 @@ npm run build
 npm run start
 ```
 
+## Desktop app & fully offline deployment
+
+For pharmacies that want a proper installed desktop app instead of a
+browser tab, and a turnkey offline setup (no `npm install`, no internet
+access needed on the pharmacy's own computers after downloading), see:
+
+- `docs/offline-deployment.md` — running the server with zero internet
+  dependency, as a downloadable pre-built bundle
+- `docs/desktop-app.md` — the Windows/Mac/Linux desktop client
+- `docs/deployment-checklist.md` — step-by-step setup for a new site
+
 ## Running tests
 
 ```bash
@@ -112,7 +123,8 @@ src/components/   React components — views/ (one per module), layout/, ui/
 src/lib/          Shared server logic (auth, audit log, encryption, ...)
 src/hooks/        Client-side data-fetching hooks
 src/types/        Shared TypeScript types
-scripts/          One-off admin scripts (e.g. license token generation)
+scripts/          One-off admin scripts (license tokens, offline server bundle build)
+desktop/          Electron desktop client (separate package — see docs/desktop-app.md)
 ```
 
 ## Notes

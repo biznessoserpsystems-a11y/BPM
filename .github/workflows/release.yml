@@ -50,10 +50,14 @@ jobs:
         working-directory: desktop
         run: npm run ${{ matrix.build-script }}
         env:
-          # electron-builder's own default GitHub publishing isn't used
-          # here (see the upload step below instead) — this token is only
-          # needed if that's turned on later via a `publish` config.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Explicitly opt out of electron-builder's own auto-publish
+          # detection (it can try to publish a GitHub release itself when
+          # it detects CI + a resolvable repo, which conflicts with the
+          # separate upload step below and is a common cause of build
+          # failures that otherwise look unrelated to publishing at all).
+          # desktop/package.json's build.publish is also set to null for
+          # the same reason — belt and suspenders.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Attach installer to the release
         uses: softprops/action-gh-release@v2
@@ -97,6 +101,15 @@ jobs:
 
       - name: Build Next.js standalone server
         run: npm run build
+        env:
+          # Only needed to satisfy src/lib/auth.ts's module-load-time
+          # guard (Next.js imports every route module during `next
+          # build` to collect route metadata, before any request is ever
+          # served) — the real per-install secrets are generated fresh
+          # by scripts/server-bundle/start-server.js at first run, not
+          # these placeholders.
+          JWT_SECRET: build-time-placeholder-not-used-at-runtime-32c
+          FIELD_ENCRYPTION_KEY: build-time-placeholder-not-used-at-runtime
 
       - name: Download portable Node.js runtime
         shell: pwsh

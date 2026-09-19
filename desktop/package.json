@@ -18,6 +18,7 @@
   "build": {
     "appId": "com.biznessphos.desktop",
     "productName": "Bizness-Ph-OS",
+    "publish": null,
     "files": [
       "main.js",
       "preload.js",

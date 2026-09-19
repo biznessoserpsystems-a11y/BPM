@@ -13,9 +13,19 @@ export default defineConfig({
     // worker, one at a time, rather than vitest's default of parallel
     // workers/processes — slower, but avoids flaky "database is locked"
     // failures that would have nothing to do with the code being tested.
+    //
+    // Vitest 4 removed `poolOptions`/`singleFork` entirely (see
+    // https://vitest.dev/guide/migration#pool-rework) — `maxWorkers: 1`
+    // is the direct replacement for "pin this to a single worker".
+    // Deliberately NOT setting `isolate: false`: some migration notes
+    // conflate that with the old singleFork setting, but isolate governs
+    // whether each test file gets a fresh module registry, which is an
+    // unrelated concern from "don't run two SQLite writers at once" —
+    // changing it could let state leak between test files with no
+    // upside for the actual problem being solved here.
     fileParallelism: false,
     pool: 'forks',
-    poolOptions: { forks: { singleFork: true } },
+    maxWorkers: 1,
     testTimeout: 15000,
     hookTimeout: 30000,
   },

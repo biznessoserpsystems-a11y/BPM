@@ -221,7 +221,7 @@ export function AppShell() {
           </AnimatePresence>
         </main>
         <footer className="border-t px-4 py-3 md:px-6 text-center text-xs text-muted-foreground">
-          Bizness Shop-OS &copy; {new Date().getFullYear()}
+          Bizness-Ph-OS &copy; {new Date().getFullYear()}
         </footer>
       </SidebarInset>
     </SidebarProvider>

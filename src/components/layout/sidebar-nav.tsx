@@ -86,15 +86,15 @@ export function SidebarNav() {
               <img src={company.logoUrl} alt={`${company.name} logo`} className="h-full w-full object-cover" />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element -- small static brand asset, no benefit from next/image here
-              <img src="/brand/logo-icon.png" alt="Bizness Shop-OS" className="h-full w-full object-contain p-0.5" />
+              <img src="/brand/logo-icon.png" alt="Bizness-Ph-OS" className="h-full w-full object-contain p-0.5" />
             )}
           </div>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
             <span className="font-display text-[15px] font-semibold tracking-tight text-sidebar-foreground leading-none">
-              {company?.name || 'Bizness Shop-OS'}
+              {company?.name || 'Bizness-Ph-OS'}
             </span>
             <span className="text-[10px] text-sidebar-foreground/50 mt-1">
-              {company?.name ? 'Bizness Shop-OS' : 'Management System'}
+              {company?.name ? 'Bizness-Ph-OS' : 'Management System'}
             </span>
           </div>
         </div>

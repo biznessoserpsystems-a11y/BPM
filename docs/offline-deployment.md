@@ -26,12 +26,12 @@ use).
 
 ## Setting up the server (host computer)
 
-Download `BiznessShopOS-Server-Windows.zip` from the project's
+Download `BiznessPhOS-Server-Windows.zip` from the project's
 [Releases](../../releases) page (built automatically by
 `.github/workflows/release.yml` whenever a version tag is pushed) and
 follow the `README.txt` inside it. In short:
 
-1. Extract the zip somewhere permanent, e.g. `C:\BiznessShopOS-Server\`.
+1. Extract the zip somewhere permanent, e.g. `C:\BiznessPhOS-Server\`.
 2. Double-click `start-server.bat`.
 3. Allow it through the Windows Firewall prompt the first time.
 4. Note the network address it prints (e.g. `192.168.1.42:3210`) — every
@@ -66,12 +66,12 @@ options, in order of effort:
   [NSSM](https://nssm.cc) to register `start-server.bat` as a proper
   Windows service:
   ```
-  nssm install BiznessShopOS "C:\BiznessShopOS-Server\start-server.bat"
-  nssm start BiznessShopOS
+  nssm install BiznessPhOS "C:\BiznessPhOS-Server\start-server.bat"
+  nssm start BiznessPhOS
   ```
   This runs it in the background, survives without anyone logged in, and
   can be set to restart automatically if it ever crashes
-  (`nssm set BiznessShopOS AppExit Default Restart`).
+  (`nssm set BiznessPhOS AppExit Default Restart`).
 
 ### Backing up
 

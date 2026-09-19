@@ -29,7 +29,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bizness Shop-OS - Pharmacy Management System",
+  title: "Bizness-Ph-OS - Pharmacy Management System",
   description: "Modern pharmacy management system for inventory, sales, prescriptions, and more.",
   icons: {
     icon: "/brand/logo-icon.png",

@@ -13,15 +13,15 @@ git push origin v1.0.0
 Wait for `.github/workflows/release.yml` to finish (check the **Actions**
 tab), then confirm the **Releases** page has:
 
-- [ ] `BiznessShopOS-Server-Windows.zip`
+- [ ] `BiznessPhOS-Server-Windows.zip`
 - [ ] A desktop installer per OS you need (`.exe` for Windows here)
 
 ## 2. Set up the host computer
 
 - [ ] Pick which computer will be the host — ideally one that stays on
       during business hours and doesn't move networks
-- [ ] Download and extract `BiznessShopOS-Server-Windows.zip` to a
-      permanent location (e.g. `C:\BiznessShopOS-Server\`)
+- [ ] Download and extract `BiznessPhOS-Server-Windows.zip` to a
+      permanent location (e.g. `C:\BiznessPhOS-Server\`)
 - [ ] Run `start-server.bat`
 - [ ] Allow it through the Windows Firewall prompt
 - [ ] Write down the network address it prints

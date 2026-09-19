@@ -1,4 +1,4 @@
-# Bizness Shop-OS
+# Bizness-Ph-OS
 
 A full pharmacy/retail management system — POS, inventory, warehouse,
 procurement, prescriptions, transfers, catalog, accounting, payroll,

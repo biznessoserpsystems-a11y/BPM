@@ -8,7 +8,7 @@ the separate Bizness-Ph-OS desktop app and connects to this one — see
 SETUP (one time)
 -----------------
 1. Extract this whole folder somewhere permanent on the host computer,
-   e.g. C:\BiznessShopOS-Server\ — don't run it from inside a zip or from
+   e.g. C:\BiznessPhOS-Server\ — don't run it from inside a zip or from
    a USB drive you'll remove later.
 2. Double-click start-server.bat.
 3. The first time it runs, Windows may show a firewall prompt

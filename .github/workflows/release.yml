@@ -100,16 +100,19 @@ jobs:
         run: node scripts/build-template-db.js
 
       - name: Build Next.js standalone server
+        # JWT_SECRET/FIELD_ENCRYPTION_KEY only need to be *present and
+        # long enough* here — src/lib/auth.ts and src/lib/field-
+        # encryption.ts throw at module-load time if they're missing or
+        # too short, and Next.js imports every route module during
+        # `next build` to collect route metadata, before any request is
+        # ever actually served. These placeholder values are never used
+        # at runtime: the real, unique-per-install secrets are generated
+        # fresh by scripts/server-bundle/start-server.js the first time
+        # the bundle actually runs.
         run: npm run build
         env:
-          # Only needed to satisfy src/lib/auth.ts's module-load-time
-          # guard (Next.js imports every route module during `next
-          # build` to collect route metadata, before any request is ever
-          # served) — the real per-install secrets are generated fresh
-          # by scripts/server-bundle/start-server.js at first run, not
-          # these placeholders.
           JWT_SECRET: build-time-placeholder-not-used-at-runtime-32c
-          FIELD_ENCRYPTION_KEY: build-time-placeholder-not-used-at-runtime
+          FIELD_ENCRYPTION_KEY: build-time-placeholder-not-used-at-runtime-32c
 
       - name: Download portable Node.js runtime
         shell: pwsh
@@ -130,12 +133,12 @@ jobs:
           Copy-Item "scripts/server-bundle/README.txt" "$bundle/README.txt"
           $nodeDir = Get-ChildItem node-portable | Select-Object -First 1
           Copy-Item "$($nodeDir.FullName)/node.exe" "$bundle/node.exe"
-          Compress-Archive -Path "$bundle/*" -DestinationPath "BiznessShopOS-Server-Windows.zip"
+          Compress-Archive -Path "$bundle/*" -DestinationPath "BiznessPhOS-Server-Windows.zip"
 
       - name: Attach server bundle to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: BiznessShopOS-Server-Windows.zip
+          files: BiznessPhOS-Server-Windows.zip
           draft: ${{ github.ref_type != 'tag' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,7 +2,7 @@
 
 ## The brief, in one sentence
 
-Bizness Shop-OS is used for hours a day by pharmacy staff doing precise,
+Bizness-Ph-OS is used for hours a day by pharmacy staff doing precise,
 high-stakes work — dispensing medicine and handling money. The redesign's
 job: make the daily-use interface feel calm, precise, and trustworthy —
 like a well-run apothecary's own record book — while staying fast to scan

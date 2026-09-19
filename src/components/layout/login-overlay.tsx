@@ -52,9 +52,9 @@ export function LoginOverlay() {
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white overflow-hidden flex-shrink-0">
               {/* eslint-disable-next-line @next/next/no-img-element -- small static brand asset, no benefit from next/image here */}
-              <img src="/brand/logo-icon.png" alt="Bizness Shop-OS" className="h-full w-full object-contain p-0.5" />
+              <img src="/brand/logo-icon.png" alt="Bizness-Ph-OS" className="h-full w-full object-contain p-0.5" />
             </div>
-            <span className="font-display text-lg font-semibold tracking-tight">Bizness Shop-OS</span>
+            <span className="font-display text-lg font-semibold tracking-tight">Bizness-Ph-OS</span>
           </div>
         </div>
 
@@ -90,9 +90,9 @@ export function LoginOverlay() {
           <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
             <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white border overflow-hidden flex-shrink-0">
               {/* eslint-disable-next-line @next/next/no-img-element -- small static brand asset, no benefit from next/image here */}
-              <img src="/brand/logo-icon.png" alt="Bizness Shop-OS" className="h-full w-full object-contain p-0.5" />
+              <img src="/brand/logo-icon.png" alt="Bizness-Ph-OS" className="h-full w-full object-contain p-0.5" />
             </div>
-            <span className="font-display text-lg font-semibold tracking-tight">Bizness Shop-OS</span>
+            <span className="font-display text-lg font-semibold tracking-tight">Bizness-Ph-OS</span>
           </div>
 
           {mode === 'signin' ? (

@@ -678,7 +678,7 @@ function ApprovalsSection({ queryClient }: { queryClient: ReturnType<typeof useQ
             <div className="m-4 flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">
               <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
               <div>
-                If no active rule covers an amount, Bizness Shop-OS defaults to requiring <strong>Admin or Manager</strong> approval — approval is never wide open just because nothing&apos;s configured here yet.
+                If no active rule covers an amount, Bizness-Ph-OS defaults to requiring <strong>Admin or Manager</strong> approval — approval is never wide open just because nothing&apos;s configured here yet.
               </div>
             </div>
             {rules.length > 0 ? (
@@ -877,7 +877,7 @@ function AccessControlSection({ queryClient }: { queryClient: ReturnType<typeof 
           </div>
           <p className="text-[10px] text-muted-foreground mt-2">
             Note: permissions created here are available to assign to roles above, but most access checks in
-            Bizness Shop-OS today are role-based (e.g. &quot;Admin or Manager&quot;), not permission-based — this list is the
+            Bizness-Ph-OS today are role-based (e.g. &quot;Admin or Manager&quot;), not permission-based — this list is the
             foundation for finer-grained checks as they&apos;re added, not a replacement for the role checks already in place.
           </p>
         </CardContent>

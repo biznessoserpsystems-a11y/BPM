@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Environment secrets — never commit real values (see .env.example for
+# the template). Each deployment generates its own JWT_SECRET and
+# FIELD_ENCRYPTION_KEY.
+.env
+.env.local
+.env.*.local
+
+# Next.js build output
+.next/
+out/
+
+# Local SQLite databases (dev/test data, not source)
+db/*.db
+prisma/*.db
+*.db
+*.db-journal
+
+# TypeScript incremental build info
+tsconfig.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS/editor cruft
+.DS_Store
+*.swp
+
+# Coverage
+coverage/

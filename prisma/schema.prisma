@@ -1,0 +1,1058 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// The top-level tenant boundary — every Branch and User belongs to
+// exactly one Company. Chart of Accounts (Account), GL Mappings
+// (GLAccountMapping), Currencies, Products, and Suppliers now all carry
+// a companyId and are scoped to it on every read and write (see
+// src/app/api/v1/{accounts,currencies,gl-mappings,products,suppliers}
+// and the report routes that read them). Two entities are DELIBERATELY
+// still shared across every company on this deployment, not an
+// oversight:
+//   - Role/Permission: RBAC taxonomy ("ADMIN", "MANAGER", ...) rather
+//     than tenant business data — sharing role *definitions* across
+//     companies doesn't expose one company's data to another the way a
+//     shared product catalog or chart of accounts would.
+//   - AccountingPeriod: still global by periodName, not yet company- or
+//     branch-scoped. Lower risk than the entities above (it's a
+//     open/closed flag, not a data table), but a real remaining gap
+//     worth closing in a focused follow-up rather than folded into this
+//     pass silently.
+model Company {
+  id        String   @id @default(cuid()) @map("company_id")
+  name      String
+  code      String   @unique // short slug, e.g. "acme-pharma" — for future login/subdomain scoping
+  // A data URI (not a hosted file path — this app has no external file
+  // storage), size-capped server-side in PATCH /api/v1/company. Shown in
+  // the sidebar once signed in, replacing the generic platform icon —
+  // the pre-login screen still shows the platform's own branding, since
+  // it doesn't yet know which company is signing in.
+  logoUrl   String?  @map("logo_url")
+  // Null for the seeded default company (and anything created directly,
+  // not through self-service registration) — it never expires, since the
+  // one-click demo login on the sign-in screen depends on it always
+  // working. Only companies created via POST /auth/register-company get
+  // a real 30-day trial window, checked at login time — see
+  // assertCompanyActive() in src/lib/company-trial.ts.
+  trialExpiresAt DateTime? @map("trial_expires_at")
+  // Set only while a reactivation request is pending (see POST
+  // /auth/request-reactivation-code and /auth/reactivate). There is no
+  // email/SMS service configured in this deployment, so the code is
+  // shown directly in the browser when requested rather than delivered
+  // out-of-band — the request/redeem mechanism itself is real, but
+  // "sending" it is honestly just displaying it, not emailing it.
+  reactivationCode          String?   @map("reactivation_code")
+  reactivationCodeExpiresAt DateTime? @map("reactivation_code_expires_at")
+  // The license token that was redeemed to create this company — null
+  // for the seeded default company and anything created outside
+  // self-service registration. See LicenseToken below.
+  licenseTokenId String?  @map("license_token_id")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  licenseToken LicenseToken? @relation(fields: [licenseTokenId], references: [id])
+  branches Branch[]
+  users    User[]
+  employees        Employee[]
+  payeTaxBands     PayeTaxBand[]
+  payrollSettings  PayrollSettings?
+  payRuns          PayRun[]
+  products         Product[]
+  suppliers        Supplier[]
+  currencies       Currency[]
+  accounts         Account[]
+  glAccountMappings GLAccountMapping[]
+
+  @@map("companies")
+}
+
+// A licensing credential for self-service registration (POST
+// /auth/register-company) — sold/issued per customer, not something a
+// customer generates themselves. There is no seller-facing admin panel
+// in this app; tokens are created via scripts/generate-license-token.js,
+// run directly on the server by whoever operates this deployment.
+// maxCompanies defaults to 2 (one token = one sale = up to two
+// companies), matching the tier this was built for, but is a real
+// per-token field, not a hardcoded constant — a different token can be
+// issued with a different limit without any code change.
+model LicenseToken {
+  id             String    @id @default(cuid()) @map("license_token_id")
+  token          String    @unique
+  label          String? // free-text note for whoever generated it — e.g. a customer name — never shown to the person redeeming it
+  maxCompanies   Int       @default(2) @map("max_companies")
+  companiesCreated Int     @default(0) @map("companies_created")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  companies Company[]
+
+  @@map("license_tokens")
+}
+
+// Branches are never hard-deleted — branchId is referenced as a plain
+// string (not an enforced foreign key) across sales, inventory, transfers,
+// and audit logs, so a branch can be deactivated (removed from pickers)
+// without touching every model that has ever recorded activity there. See
+// /api/v1/branches for the CRUD surface and Settings → Branches for the UI.
+model Branch {
+  id        String   @id @map("branch_id")
+  companyId String   @map("company_id")
+  name      String   @map("branch_name")
+  address   String?
+  phone     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("branches")
+}
+
+// =============================================================================
+// PAYROLL — Ghana-specific statutory payroll accounting.
+//
+// Deliberately does NOT hardcode PAYE tax bands or SSNIT rates as fixed
+// application logic. Ghana's income tax bands change periodically (via
+// the annual Budget), and even reputable published sources disagree on
+// the exact width of the middle/upper bands as of this writing — the
+// underlying tax law itself has a documented drafting ambiguity in its
+// published band-width figures. Hardcoding a specific set of numbers as
+// if they were permanently correct would be actively misleading. Instead:
+// PayeTaxBand and PayrollSettings are fully editable company-level
+// configuration (Settings → Payroll), seeded with reasonable starting
+// defaults that MUST be verified against current GRA/SSNIT guidance
+// before being relied on for real compliance — this system computes
+// PAYE and SSNIT correctly *given* whatever bands and rates are
+// configured, but is not itself a source of tax-law truth.
+// =============================================================================
+
+model Employee {
+  id             String   @id @default(cuid()) @map("employee_id")
+  companyId      String   @map("company_id")
+  userId         Int?     @unique @map("user_id") // optional: only set if this employee also has app login access
+  employeeCode   String   @map("employee_code")
+  fullName       String   @map("full_name")
+  ssnitNumber    String?  @map("ssnit_number")
+  tinNumber      String?  @map("tin_number")
+  bankName       String?  @map("bank_name")
+  bankAccountNo  String?  @map("bank_account_no")
+  basicSalary    Float    @map("basic_salary")
+  allowances     Float    @default(0) // fixed monthly allowances, taxed as part of gross per current PAYE rules
+  employmentDate DateTime @map("employment_date")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  company      Company        @relation(fields: [companyId], references: [id])
+  user         User?          @relation(fields: [userId], references: [id])
+  payslipLines PayslipLine[]
+
+  @@unique([companyId, employeeCode])
+  @@map("employees")
+}
+
+// One row per tax band, e.g. {min: 0, max: 490, rate: 0}, {min: 490,
+// max: 590, rate: 5}, ... {min: 20000, max: null, rate: 35}. Rates are
+// percentages (5 means 5%, not 0.05), matching how every other
+// percentage field in this app is already stored and displayed. max
+// null means "and above" — the final, top band.
+model PayeTaxBand {
+  id        Int     @id @default(autoincrement()) @map("band_id")
+  companyId String  @map("company_id")
+  minAmount Float   @map("min_amount")
+  maxAmount Float?  @map("max_amount")
+  ratePct   Float   @map("rate_pct")
+  sortOrder Int     @map("sort_order")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("paye_tax_bands")
+}
+
+// One row per company — simple named settings rather than an arbitrary
+// key-value table, since there are only ever these three numbers.
+model PayrollSettings {
+  id                    Int     @id @default(autoincrement()) @map("payroll_settings_id")
+  companyId             String  @unique @map("company_id")
+  ssnitEmployeePct      Float   @default(5.5) @map("ssnit_employee_pct")
+  ssnitEmployerPct      Float   @default(13) @map("ssnit_employer_pct")
+  ssnitCeiling          Float?  @map("ssnit_ceiling") // monthly insurable earnings ceiling; null = uncapped
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("payroll_settings")
+}
+
+model PayRun {
+  id                    String   @id @default(cuid()) @map("pay_run_id")
+  companyId             String   @map("company_id")
+  branchId              String?  @map("branch_id")
+  runNumber             String   @unique @map("run_number")
+  periodStart           DateTime @map("period_start")
+  periodEnd             DateTime @map("period_end")
+  payDate               DateTime @map("pay_date")
+  status                String   @default("DRAFT") @map("status") // DRAFT | POSTED
+  totalGross            Float    @default(0) @map("total_gross")
+  totalPaye             Float    @default(0) @map("total_paye")
+  totalSsnitEmployee    Float    @default(0) @map("total_ssnit_employee")
+  totalSsnitEmployer    Float    @default(0) @map("total_ssnit_employer")
+  totalNet              Float    @default(0) @map("total_net")
+  processedByUserId     Int      @map("processed_by_user_id")
+  journalEntryId        String?  @map("journal_entry_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  company         Company       @relation(fields: [companyId], references: [id])
+  processedByUser User          @relation(fields: [processedByUserId], references: [id])
+  lines           PayslipLine[]
+
+  @@map("pay_runs")
+}
+
+model PayslipLine {
+  id                  String @id @default(cuid()) @map("payslip_line_id")
+  payRunId            String @map("pay_run_id")
+  employeeId          String @map("employee_id")
+  basicSalary         Float  @map("basic_salary")
+  allowances          Float  @map("allowances")
+  grossPay            Float  @map("gross_pay")
+  ssnitEmployee        Float  @map("ssnit_employee") // withheld from employee, remitted on their behalf
+  ssnitEmployer        Float  @map("ssnit_employer") // employer's own additional cost, not withheld from employee
+  payeTax              Float  @map("paye_tax")
+  otherDeductions      Float  @default(0) @map("other_deductions")
+  netPay               Float  @map("net_pay")
+
+  payRun   PayRun   @relation(fields: [payRunId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("payslip_lines")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement()) @map("role_id")
+  roleName    String   @unique @map("role_name")
+  description String?
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id             Int      @id @default(autoincrement()) @map("permission_id")
+  permissionName String   @unique @map("permission_name")
+  description    String?
+  roles          RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       Int  @map("role_id")
+  permissionId Int  @map("permission_id")
+  role         Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id            Int      @id @default(autoincrement()) @map("user_id")
+  companyId     String   @map("company_id")
+  username      String   @unique
+  passwordHash  String   @map("password_hash")
+  fullName      String   @map("full_name")
+  email         String?  @unique
+  phone         String?
+  roleId        Int      @map("role_id")
+  homeBranchId  String   @map("home_branch_id")
+  licenseNumber String?  @map("license_number")
+  pinCode       String?  @map("pin_code")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  sales              Sale[]
+  refillLogs         RefillDispensingLog[]
+  stockAdjustments   StockAdjustment[]
+  auditLogs          SystemAuditLog[]
+  requestedTransfers InterBranchTransfer[] @relation("RequestedTransfers")
+  approvedTransfers  InterBranchTransfer[] @relation("ApprovedTransfers")
+  postedJournalEntries  JournalEntry[]     @relation("PostedJournalEntries")
+  closedAccountingPeriods AccountingPeriod[] @relation("ClosedAccountingPeriods")
+  requestedPurchaseOrders PurchaseOrder[]  @relation("RequestedPurchaseOrders")
+  approvedPurchaseOrders  PurchaseOrder[]  @relation("ApprovedPurchaseOrders")
+  receivedGoodsReceipts   GoodsReceipt[]
+  moduleAccess            UserModuleAccess[]
+  processedSalesReturns   SalesReturn[]
+  employeeRecord          Employee?
+  processedPayRuns        PayRun[]
+
+  @@map("users")
+}
+
+// A per-user override on top of role-based access. Deliberately additive,
+// not default-deny: a user with no rows here for a given module keeps
+// exactly today's behavior (whatever their Role already permits) — only
+// modules that have been explicitly set here override that. This matters
+// a lot given this table starts empty for every existing user: a
+// default-deny design would have hidden every portal for everyone the
+// moment this shipped, not just the ones an Admin actually meant to
+// restrict. See Settings → Access Control → Portal Access, and
+// src/lib/portals.ts for the canonical list of module keys.
+model UserModuleAccess {
+  id          Int      @id @default(autoincrement()) @map("user_module_access_id")
+  userId      Int      @map("user_id")
+  moduleKey   String   @map("module_key")
+  accessLevel String   @map("access_level") // NONE | VIEW | EDIT
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleKey])
+  @@map("user_module_access")
+}
+
+model Supplier {
+  id                Int      @id @default(autoincrement()) @map("supplier_id")
+  companyId         String   @map("company_id")
+  name              String
+  contactPerson     String?  @map("contact_person")
+  phone             String
+  email             String?
+  address           String?
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  invoiceCurrencyId Int?     @map("invoice_currency_id")
+  // Links this supplier to its own Accounts Payable sub-account, so goods
+  // receipts post what's owed to *this specific supplier* rather than only
+  // ever landing in one lump global AP balance — the difference between
+  // "we owe suppliers GHS 40,000" and knowing exactly who's owed what.
+  // Optional and falls back to the global AP mapping (Settings → GL
+  // Mappings) when unset, same "never block the operation" philosophy as
+  // every other GL linkage in this system — see /api/v1/suppliers.
+  apAccountId       Int?     @map("ap_account_id")
+
+  company         Company        @relation(fields: [companyId], references: [id])
+  batches         ProductBatch[]
+  invoiceCurrency Currency?      @relation(fields: [invoiceCurrencyId], references: [id])
+  purchaseOrders  PurchaseOrder[]
+  apAccount       Account?       @relation("SupplierAPAccount", fields: [apAccountId], references: [id])
+
+  @@map("suppliers")
+}
+
+// =============================================================================
+// PROCUREMENT: PURCHASE ORDERS + GOODS RECEIPT
+// =============================================================================
+//
+// Purchase orders capture *intent to buy* — nothing here touches ProductBatch
+// or quantityInStock. Stock only enters Stores through a GoodsReceipt, which
+// is the one place that creates/updates ProductBatch rows. This keeps
+// "what we've ordered" cleanly separate from "what's physically on the shelf".
+//
+// Status lifecycle for PurchaseOrder:
+//   DRAFT -> SUBMITTED -> APPROVED -> ORDERED -> PARTIALLY_RECEIVED -> RECEIVED
+//   (CANCELLED is reachable from any state prior to RECEIVED)
+
+model PurchaseOrder {
+  id                   String    @id @default(cuid()) @map("po_id")
+  poNumber             String    @unique @map("po_number")
+  branchId             String    @map("branch_id")
+  supplierId           Int       @map("supplier_id")
+  status               String    @default("DRAFT") @map("status")
+  currencyId           Int?      @map("currency_id")
+  exchangeRate         Float     @default(1.0) @map("exchange_rate")
+  orderDate            DateTime  @default(now()) @map("order_date")
+  expectedDeliveryDate DateTime? @map("expected_delivery_date")
+  notes                String?
+  subtotalAmount       Float     @default(0) @map("subtotal_amount")
+  taxAmount            Float     @default(0) @map("tax_amount")
+  totalAmount          Float     @default(0) @map("total_amount")
+  requestedByUserId    Int       @map("requested_by_user_id")
+  approvedByUserId     Int?      @map("approved_by_user_id")
+  approvedAt           DateTime? @map("approved_at")
+  cancelledReason      String?   @map("cancelled_reason")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  currency        Currency?           @relation(fields: [currencyId], references: [id])
+  requestedByUser User                @relation("RequestedPurchaseOrders", fields: [requestedByUserId], references: [id])
+  approvedByUser  User?               @relation("ApprovedPurchaseOrders", fields: [approvedByUserId], references: [id])
+  items           PurchaseOrderItem[]
+  goodsReceipts   GoodsReceipt[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id               String @id @default(cuid()) @map("po_item_id")
+  purchaseOrderId  String @map("purchase_order_id")
+  productId        Int    @map("product_id")
+  quantityOrdered  Int    @map("quantity_ordered")
+  quantityReceived Int    @default(0) @map("quantity_received")
+  unitCost         Float  @map("unit_cost")
+  taxRate          Float  @default(0) @map("tax_rate")
+  subtotal         Float  @map("subtotal")
+
+  purchaseOrder     PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product           Product            @relation(fields: [productId], references: [id])
+  goodsReceiptItems GoodsReceiptItem[]
+
+  @@map("purchase_order_items")
+}
+
+// One GoodsReceipt = one delivery event against a PO (a PO can be received
+// in several partial deliveries). This is the only place ProductBatch rows
+// get created or topped up from a purchase.
+model GoodsReceipt {
+  id               String   @id @default(cuid()) @map("grn_id")
+  grnNumber        String   @unique @map("grn_number")
+  purchaseOrderId  String   @map("purchase_order_id")
+  branchId         String   @map("branch_id")
+  receivedByUserId Int      @map("received_by_user_id")
+  receivedDate     DateTime @default(now()) @map("received_date")
+  notes            String?
+  journalEntryId   String?  @map("journal_entry_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  purchaseOrder  PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+  receivedByUser User               @relation(fields: [receivedByUserId], references: [id])
+  journalEntry   JournalEntry?      @relation(fields: [journalEntryId], references: [id])
+  items          GoodsReceiptItem[]
+
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptItem {
+  id                  String @id @default(cuid()) @map("grn_item_id")
+  goodsReceiptId      String @map("goods_receipt_id")
+  purchaseOrderItemId String @map("purchase_order_item_id")
+  productId           Int    @map("product_id")
+  batchId             String @map("batch_id")
+  quantityReceived    Int    @map("quantity_received")
+  unitCost            Float  @map("unit_cost")
+
+  goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+  product           Product           @relation(fields: [productId], references: [id])
+  batch             ProductBatch      @relation(fields: [batchId], references: [id])
+
+  @@map("goods_receipt_items")
+}
+
+model Product {
+  id                     Int      @id @default(autoincrement()) @map("product_id")
+  companyId              String   @map("company_id")
+  skuCode                String   @map("sku_code")
+  barcode                String?
+  brandName              String   @map("brand_name")
+  genericName            String   @map("generic_name")
+  category               String
+  dosageForm             String   @map("dosage_form")
+  strength               String?
+  reorderLevel           Int      @default(10) @map("reorder_level")
+  isControlledSubstance  Boolean  @default(false) @map("is_controlled_substance")
+  isPrescriptionRequired Boolean  @default(true) @map("is_prescription_required")
+  taxRate                Float    @default(0) @map("tax_rate")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  company           Company                @relation(fields: [companyId], references: [id])
+  batches           ProductBatch[]
+  prescriptionItems PrescriptionItem[]
+  saleItems         SaleItem[]
+  transfers         InterBranchTransfer[]
+  stockAdjustments  StockAdjustment[]
+  journalLines      JournalLine[]
+  purchaseOrderItems PurchaseOrderItem[]
+  goodsReceiptItems  GoodsReceiptItem[]
+
+  // Unique per company rather than globally — two independent pharmacies
+  // legitimately reuse the same SKU/barcode conventions (e.g. both using
+  // a supplier's own barcode), and before this, the second company to
+  // register a product with that code would have been silently blocked
+  // by the first company's row.
+  @@unique([companyId, skuCode])
+  @@unique([companyId, barcode])
+  @@map("products")
+}
+
+model ProductBatch {
+  id               String   @id @default(cuid()) @map("batch_id")
+  branchId         String   @map("branch_id")
+  productId        Int      @map("product_id")
+  supplierId       Int?     @map("supplier_id")
+  batchNumber      String   @map("batch_number")
+  expiryDate       DateTime @map("expiry_date")
+  purchasePrice    Float    @map("purchase_price")
+  sellingPrice     Float    @map("selling_price")
+  quantityReceived Int      @map("quantity_received")
+  quantityInStock  Int      @map("quantity_in_stock")
+  receivedDate     DateTime @default(now()) @map("received_date")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  product          Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  supplier         Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  saleItems        SaleItem[]
+  stockAdjustments StockAdjustment[]
+  sourcedTransfers InterBranchTransfer[] @relation("SourceBatchTransfers")
+  inventoryValuations InventoryValuation[]
+  goodsReceiptItems GoodsReceiptItem[]
+
+  @@unique([branchId, productId, batchNumber], name: "unique_branch_product_batch")
+  @@index([branchId, productId, expiryDate, quantityInStock], name: "idx_fefo_branch_picking")
+  @@map("product_batches")
+}
+
+model Prescription {
+  id                  String   @id @default(cuid()) @map("prescription_id")
+  rxNumber            String   @unique @map("rx_number")
+  patientName         String   @map("patient_name")
+  patientPhone        String?  @map("patient_phone")
+  doctorName          String   @map("doctor_name")
+  doctorLicenseNumber String   @map("doctor_license_number")
+  prescribedDate      DateTime @default(now()) @map("prescribed_date")
+  expiryDate          DateTime @map("expiry_date")
+  notes               String?
+  // ACTIVE | CANCELLED. A prescription with any dispensing history can't
+  // be hard-deleted (it's real patient/sales history — see DELETE on
+  // /api/v1/prescriptions/[rxNumber]), so cancelling is the safe
+  // alternative: stops further refills without destroying that record.
+  status              String   @default("ACTIVE")
+  createdAt           DateTime @default(now()) @map("created_at")
+  items               PrescriptionItem[]
+
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id                 String    @id @default(cuid()) @map("rx_item_id")
+  prescriptionId     String    @map("prescription_id")
+  productId          Int       @map("product_id")
+  dosageInstructions String    @map("dosage_instructions")
+  refillsAuthorized  Int       @default(0) @map("refills_authorized")
+  refillsRemaining   Int       @default(0) @map("refills_remaining")
+  quantityPerRefill  Int       @map("quantity_per_refill")
+  intervalDays       Int?      @default(30) @map("interval_days")
+  lastDispensedDate  DateTime? @map("last_dispensed_date")
+
+  prescription Prescription          @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  product      Product               @relation(fields: [productId], references: [id])
+  refillLogs   RefillDispensingLog[]
+
+  @@map("prescription_items")
+}
+
+model Sale {
+  id             String   @id @default(cuid()) @map("sale_id")
+  branchId       String   @map("branch_id")
+  invoiceNumber  String   @unique @map("invoice_number")
+  userId         Int      @map("user_id")
+  customerName   String?  @default("Walk-in Customer") @map("customer_name")
+  customerPhone  String?  @map("customer_phone")
+  doctorName     String?  @map("doctor_name")
+  subtotalAmount Float    @map("subtotal_amount")
+  discountAmount Float    @default(0) @map("discount_amount")
+  taxAmount      Float    @default(0) @map("tax_amount")
+  totalAmount    Float    @map("total_amount")
+  paymentMethod  String   @map("payment_method")
+  syncedToCloud  Boolean  @default(false) @map("synced_to_cloud")
+  saleDate       DateTime @default(now()) @map("sale_date")
+
+  user       User                  @relation(fields: [userId], references: [id])
+  saleItems  SaleItem[]
+  refillLogs RefillDispensingLog[]
+  revenueContracts RevenueContract[]
+  salesReturns SalesReturn[]
+
+  @@map("sales")
+}
+
+model SaleItem {
+  id        String @id @default(cuid()) @map("sale_item_id")
+  saleId    String @map("sale_id")
+  productId Int    @map("product_id")
+  batchId   String @map("batch_id")
+  quantity  Int
+  unitPrice Float  @map("unit_price")
+  subtotal  Float
+
+  sale    Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  salesReturnItems SalesReturnItem[]
+  product Product      @relation(fields: [productId], references: [id])
+  batch   ProductBatch @relation(fields: [batchId], references: [id])
+
+  @@map("sale_items")
+}
+
+// A sales return references specific line items from a specific past
+// sale (never a bare amount) so the quantities actually returned can be
+// validated against what was originally purchased minus whatever's
+// already been returned against that same line — see POST
+// /api/v1/sales/[id]/return. restocked tracks whether the returned
+// units were physically put back into sellable stock (not always true —
+// a damaged or expired return isn't restockable), which determines
+// whether the GL posting reverses COGS/Inventory as well as revenue.
+model SalesReturn {
+  id                String   @id @default(cuid()) @map("sales_return_id")
+  saleId            String   @map("sale_id")
+  branchId          String   @map("branch_id")
+  returnNumber      String   @unique @map("return_number")
+  reason            String?
+  restocked         Boolean  @default(false)
+  totalAmount       Float    @map("total_amount")
+  processedByUserId Int      @map("processed_by_user_id")
+  journalEntryId    String?  @map("journal_entry_id")
+  returnDate        DateTime @default(now()) @map("return_date")
+
+  sale            Sale              @relation(fields: [saleId], references: [id])
+  processedByUser User              @relation(fields: [processedByUserId], references: [id])
+  items           SalesReturnItem[]
+
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id            String @id @default(cuid()) @map("sales_return_item_id")
+  salesReturnId String @map("sales_return_id")
+  saleItemId    String @map("sale_item_id")
+  quantity      Int
+  amount        Float
+
+  salesReturn SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  saleItem    SaleItem    @relation(fields: [saleItemId], references: [id])
+
+  @@map("sales_return_items")
+}
+
+model RefillDispensingLog {
+  id                String   @id @default(cuid()) @map("log_id")
+  rxItemId          String   @map("rx_item_id")
+  saleId            String   @map("sale_id")
+  dispensedByUserId Int      @map("dispensed_by_user_id")
+  quantityDispensed Int      @map("quantity_dispensed")
+  dispensedDate     DateTime @default(now()) @map("dispensed_date")
+
+  rxItem          PrescriptionItem @relation(fields: [rxItemId], references: [id])
+  sale            Sale             @relation(fields: [saleId], references: [id])
+  dispensedByUser User             @relation(fields: [dispensedByUserId], references: [id])
+
+  @@map("refill_dispensing_log")
+}
+
+model InterBranchTransfer {
+  id                  String   @id @default(cuid()) @map("transfer_id")
+  transferCode        String   @unique @map("transfer_code")
+  sourceBranchId      String   @map("source_branch_id")
+  destinationBranchId String   @map("destination_branch_id")
+  productId           Int      @map("product_id")
+  sourceBatchId       String?  @map("source_batch_id")
+  requestedQty        Int      @map("requested_qty")
+  approvedQty         Int      @default(0) @map("approved_qty")
+  status              String   @default("REQUESTED")
+  requestedByUserId   Int      @map("requested_by_user_id")
+  approvedByUserId    Int?     @map("approved_by_user_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  product         Product       @relation(fields: [productId], references: [id])
+  sourceBatch     ProductBatch? @relation("SourceBatchTransfers", fields: [sourceBatchId], references: [id])
+  requestedByUser User          @relation("RequestedTransfers", fields: [requestedByUserId], references: [id])
+  approvedByUser  User?         @relation("ApprovedTransfers", fields: [approvedByUserId], references: [id])
+
+  @@map("inter_branch_transfers")
+}
+
+model StockAdjustment {
+  id              String   @id @default(cuid()) @map("adjustment_id")
+  branchId        String   @map("branch_id")
+  batchId         String   @map("batch_id")
+  productId       Int      @map("product_id")
+  userId          Int      @map("user_id")
+  quantityChanged Int      @map("quantity_changed")
+  reason          String
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  batch   ProductBatch @relation(fields: [batchId], references: [id])
+  product Product      @relation(fields: [productId], references: [id])
+  user    User         @relation(fields: [userId], references: [id])
+
+  @@map("stock_adjustments")
+}
+
+model SystemAuditLog {
+  id         Int      @id @default(autoincrement()) @map("audit_id")
+  branchId   String   @default("SYSTEM") @map("branch_id")
+  userId     Int?     @map("user_id")
+  action     String
+  entityName String?  @map("entity_name")
+  entityId   String?  @map("entity_id")
+  ipAddress  String?  @map("ip_address")
+  details    String?  @map("details")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("system_audit_logs")
+}
+
+// =============================================================================
+// CURRENCY SETUP
+// =============================================================================
+
+model Currency {
+  id             Int      @id @default(autoincrement()) @map("currency_id")
+  companyId      String   @map("company_id")
+  code           String                                     // ISO 4217: "GHS", "USD", "EUR"
+  name           String                                     // "Ghanaian Cedi"
+  symbol         String                                     // "GH₵"
+  decimalPlaces  Int      @default(2) @map("decimal_places")
+  isBaseCurrency Boolean  @default(false) @map("is_base_currency")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  company        Company        @relation(fields: [companyId], references: [id])
+  exchangeRates  ExchangeRate[]
+  journalEntries JournalEntry[]
+  suppliers      Supplier[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([companyId, code])
+  @@map("currencies")
+}
+
+model ExchangeRate {
+  id         Int      @id @default(autoincrement()) @map("exchange_rate_id")
+  currencyId Int      @map("currency_id")              // the foreign currency
+  rateDate   DateTime @map("rate_date")
+  rateToBase Float    @map("rate_to_base")              // 1 unit of this currency = X GHS
+  source     String   @default("MANUAL") @map("source") // MANUAL | API
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  @@unique([currencyId, rateDate])
+  @@map("exchange_rates")
+}
+
+// =============================================================================
+// CHART OF ACCOUNTS + GENERAL LEDGER
+// =============================================================================
+
+model Account {
+  id              Int      @id @default(autoincrement()) @map("account_id")
+  companyId       String   @map("company_id")
+  accountCode     String   @map("account_code")               // e.g. "1000", "4000"
+  accountName     String   @map("account_name")               // e.g. "Cash", "Sales Revenue"
+  accountType     String   @map("account_type")               // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  accountSubType  String?  @map("account_sub_type")           // CURRENT_ASSET, FIXED_ASSET, COGS, etc.
+  normalBalance   String   @map("normal_balance")             // DEBIT | CREDIT — drives validation & reports
+  parentAccountId Int?     @map("parent_account_id")          // self-relation, for hierarchy/roll-ups
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  parentAccount Account?  @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  childAccounts Account[] @relation("AccountHierarchy")
+  journalLines  JournalLine[]
+  glMappings    GLAccountMapping[]
+
+  fixedAssetsAsAssetAccount      FixedAsset[]      @relation("FixedAssetAccount")
+  fixedAssetsAsAccumDepAccount   FixedAsset[]      @relation("FixedAssetAccumDepAccount")
+  fixedAssetsAsDepExpenseAccount FixedAsset[]      @relation("FixedAssetDepExpenseAccount")
+  leasesAsROUAssetAccount        Lease[]           @relation("LeaseROUAssetAccount")
+  leasesAsLiabilityAccount       Lease[]           @relation("LeaseLiabilityAccountRel")
+  revenueContractsAsDeferredAccount RevenueContract[] @relation("DeferredRevenueAccountRel")
+  suppliersAsAPAccount              Supplier[]        @relation("SupplierAPAccount")
+
+  @@unique([companyId, accountCode])
+  @@map("accounts")
+}
+
+model JournalEntry {
+  id                String   @id @default(cuid()) @map("entry_id")
+  entryNumber       String   @unique @map("entry_number")        // e.g. "JE-2026-000123"
+  branchId          String   @map("branch_id")
+  entryDate         DateTime @map("entry_date")
+  description       String?
+  sourceType        String   @map("source_type")                 // SALE | STOCK_ADJUSTMENT | TRANSFER | PURCHASE | MANUAL
+  sourceId          String?  @map("source_id")                   // points back to Sale.id, StockAdjustment.id, etc.
+  status            String   @default("POSTED") @map("status")   // DRAFT | POSTED | REVERSED
+  currencyId        Int      @map("currency_id")                 // transaction currency (defaults to base/GHS)
+  exchangeRate      Float    @default(1.0) @map("exchange_rate") // rate to base currency on entryDate; 1.0 if already GHS
+  postedByUserId    Int      @map("posted_by_user_id")
+  reversedByEntryId String?  @map("reversed_by_entry_id")        // set on the original entry once reversed
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  currency     Currency      @relation(fields: [currencyId], references: [id])
+  postedByUser User          @relation("PostedJournalEntries", fields: [postedByUserId], references: [id])
+  lines        JournalLine[]
+
+  depreciationEntries       DepreciationEntry[]
+  leasePayments             LeasePayment[]
+  revenueRecognitionEntries RevenueRecognitionEntry[]
+  inventoryValuations       InventoryValuation[]
+  goodsReceipts             GoodsReceipt[]
+
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String  @id @default(cuid()) @map("line_id")
+  journalEntryId String  @map("journal_entry_id")
+  accountId      Int     @map("account_id")
+  debit          Float   @default(0)
+  credit         Float   @default(0)
+  description    String?
+  productId      Int?    @map("product_id")   // optional dimension, useful for inventory-account drill-down
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id])
+  product      Product?     @relation(fields: [productId], references: [id])
+
+  @@map("journal_lines")
+}
+
+model AccountingPeriod {
+  id             Int       @id @default(autoincrement()) @map("period_id")
+  periodName     String    @unique @map("period_name")   // e.g. "2026-08"
+  startDate      DateTime  @map("start_date")
+  endDate        DateTime  @map("end_date")
+  status         String    @default("OPEN") @map("status")  // OPEN | CLOSED | LOCKED
+  closedByUserId Int?      @map("closed_by_user_id")
+  closedAt       DateTime? @map("closed_at")
+
+  closedByUser User? @relation("ClosedAccountingPeriods", fields: [closedByUserId], references: [id])
+
+  depreciationEntries       DepreciationEntry[]
+  leasePayments             LeasePayment[]
+  revenueRecognitionEntries RevenueRecognitionEntry[]
+
+  @@map("accounting_periods")
+}
+
+model GLAccountMapping {
+  id         Int    @id @default(autoincrement()) @map("mapping_id")
+  companyId  String @map("company_id")
+  mappingKey String @map("mapping_key")  // "INVENTORY_ASSET", "COGS", "SALES_REVENUE", "CASH", "TAX_PAYABLE", "AR"
+  accountId  Int    @map("account_id")
+
+  company Company @relation(fields: [companyId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([companyId, mappingKey])
+  @@map("gl_account_mappings")
+}
+
+// =============================================================================
+// FIXED ASSETS & DEPRECIATION (IAS 16)
+// =============================================================================
+
+model FixedAsset {
+  id                 String    @id @default(cuid()) @map("asset_id")
+  assetCode          String    @unique @map("asset_code")           // e.g. "FA-0001"
+  assetName          String    @map("asset_name")                   // "Refrigerator - Cold Chain Unit"
+  category           String                                          // EQUIPMENT | FURNITURE | VEHICLE | BUILDING | LEASEHOLD_IMPROVEMENT
+  branchId           String    @map("branch_id")
+  acquisitionDate    DateTime  @map("acquisition_date")
+  acquisitionCost    Float     @map("acquisition_cost")
+  residualValue      Float     @default(0) @map("residual_value")
+  usefulLifeMonths   Int       @map("useful_life_months")
+  depreciationMethod String    @default("STRAIGHT_LINE") @map("depreciation_method") // STRAIGHT_LINE | REDUCING_BALANCE
+  status             String    @default("ACTIVE") @map("status")    // ACTIVE | DISPOSED | FULLY_DEPRECIATED
+  disposalDate       DateTime? @map("disposal_date")
+  disposalProceeds   Float?    @map("disposal_proceeds")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  assetAccountId               Int? @map("asset_account_id")                 // balance sheet: the asset itself, at cost
+  accumulatedDepreciationAccountId Int? @map("accumulated_depreciation_account_id") // contra-asset account
+  depreciationExpenseAccountId Int? @map("depreciation_expense_account_id")  // income statement expense account
+
+  assetAccount                Account? @relation("FixedAssetAccount", fields: [assetAccountId], references: [id])
+  accumulatedDepreciationAccount Account? @relation("FixedAssetAccumDepAccount", fields: [accumulatedDepreciationAccountId], references: [id])
+  depreciationExpenseAccount  Account? @relation("FixedAssetDepExpenseAccount", fields: [depreciationExpenseAccountId], references: [id])
+  depreciationEntries         DepreciationEntry[]
+
+  @@map("fixed_assets")
+}
+
+model DepreciationEntry {
+  id                 String   @id @default(cuid()) @map("depreciation_entry_id")
+  assetId            String   @map("asset_id")
+  periodId           Int      @map("period_id")
+  depreciationAmount Float    @map("depreciation_amount")   // this period's charge
+  netBookValue       Float    @map("net_book_value")         // running NBV after this entry
+  journalEntryId     String?  @map("journal_entry_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  asset        FixedAsset       @relation(fields: [assetId], references: [id])
+  period       AccountingPeriod @relation(fields: [periodId], references: [id])
+  journalEntry JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+
+  @@unique([assetId, periodId])
+  @@map("depreciation_entries")
+}
+
+// =============================================================================
+// LEASES (IFRS 16)
+// =============================================================================
+
+model Lease {
+  id             String   @id @default(cuid()) @map("lease_id")
+  leaseCode      String   @unique @map("lease_code")
+  branchId       String   @map("branch_id")
+  description    String                                     // "Accra Main - Retail Unit Lease"
+  lessor         String                                      // landlord/counterparty name
+  startDate      DateTime @map("start_date")
+  endDate        DateTime @map("end_date")
+  monthlyPayment Float    @map("monthly_payment")
+  discountRate   Float    @map("discount_rate")              // incremental borrowing rate, annualized %
+  rouAssetValue  Float    @map("rou_asset_value")             // right-of-use asset, initial recognition
+  leaseLiability Float    @map("lease_liability")             // initial lease liability (PV of remaining payments)
+  status         String   @default("ACTIVE") @map("status")  // ACTIVE | TERMINATED | EXPIRED
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  rouAssetAccountId       Int? @map("rou_asset_account_id")
+  leaseLiabilityAccountId Int? @map("lease_liability_account_id")
+
+  rouAssetAccount       Account? @relation("LeaseROUAssetAccount", fields: [rouAssetAccountId], references: [id])
+  leaseLiabilityAccount Account? @relation("LeaseLiabilityAccountRel", fields: [leaseLiabilityAccountId], references: [id])
+  payments              LeasePayment[]
+
+  @@map("leases")
+}
+
+model LeasePayment {
+  id                 String   @id @default(cuid()) @map("lease_payment_id")
+  leaseId            String   @map("lease_id")
+  periodId           Int      @map("period_id")
+  paymentDate        DateTime @map("payment_date")
+  paymentAmount      Float    @map("payment_amount")
+  interestExpense    Float    @map("interest_expense")       // portion unwinding the discount
+  principalReduction Float    @map("principal_reduction")    // portion reducing the lease liability
+  remainingLiability Float    @map("remaining_liability")    // running balance after this payment
+  rouAmortization    Float    @map("rou_amortization")       // ROU asset amortization for the period
+  journalEntryId     String?  @map("journal_entry_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  lease        Lease            @relation(fields: [leaseId], references: [id])
+  period       AccountingPeriod @relation(fields: [periodId], references: [id])
+  journalEntry JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+
+  @@unique([leaseId, periodId])
+  @@map("lease_payments")
+}
+
+// =============================================================================
+// REVENUE RECOGNITION (IFRS 15)
+// =============================================================================
+
+// Ordinary POS sales are point-in-time and need nothing beyond the Sale
+// model itself. This module exists for the exceptions: insurance billing,
+// corporate accounts, or any arrangement where revenue is recognized over
+// time rather than at the point of sale.
+model RevenueContract {
+  id                  String    @id @default(cuid()) @map("contract_id")
+  contractCode        String    @unique @map("contract_code")
+  branchId            String    @map("branch_id")
+  customerName        String    @map("customer_name")             // e.g. insurer or corporate client name
+  saleId              String?   @map("sale_id")                    // optional link back to an originating Sale
+  totalContractValue  Float     @map("total_contract_value")
+  recognizedRevenue   Float     @default(0) @map("recognized_revenue")
+  deferredRevenue     Float     @map("deferred_revenue")           // totalContractValue - recognizedRevenue
+  recognitionMethod   String    @default("POINT_IN_TIME") @map("recognition_method") // POINT_IN_TIME | OVER_TIME
+  startDate           DateTime  @map("start_date")
+  endDate             DateTime? @map("end_date")
+  status              String    @default("ACTIVE") @map("status") // ACTIVE | COMPLETED | CANCELLED
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  deferredRevenueAccountId Int? @map("deferred_revenue_account_id")
+
+  sale                   Sale?    @relation(fields: [saleId], references: [id])
+  deferredRevenueAccount Account? @relation("DeferredRevenueAccountRel", fields: [deferredRevenueAccountId], references: [id])
+  recognitionEntries     RevenueRecognitionEntry[]
+
+  @@map("revenue_contracts")
+}
+
+model RevenueRecognitionEntry {
+  id               String   @id @default(cuid()) @map("recognition_entry_id")
+  contractId       String   @map("contract_id")
+  periodId         Int      @map("period_id")
+  recognizedAmount Float    @map("recognized_amount")   // this period's slice of recognized revenue
+  journalEntryId   String?  @map("journal_entry_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contract     RevenueContract  @relation(fields: [contractId], references: [id])
+  period       AccountingPeriod @relation(fields: [periodId], references: [id])
+  journalEntry JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+
+  @@unique([contractId, periodId])
+  @@map("revenue_recognition_entries")
+}
+
+// =============================================================================
+// INVENTORY VALUATION / NET REALIZABLE VALUE (IAS 2)
+// =============================================================================
+
+// Formalizes what StockAdjustment does informally: a documented,
+// auditable record of *why* a batch was written down and by how much,
+// tied to a specific journal entry rather than just a quantity change.
+model InventoryValuation {
+  id                  String   @id @default(cuid()) @map("valuation_id")
+  batchId             String   @map("batch_id")
+  valuationDate       DateTime @default(now()) @map("valuation_date")
+  costPerUnit         Float    @map("cost_per_unit")            // snapshot of batch.purchasePrice at valuation time
+  netRealizableValue  Float    @map("net_realizable_value")     // estimated selling price, less costs to sell
+  quantityOnHand      Int      @map("quantity_on_hand")
+  writeDownRequired   Boolean  @default(false) @map("write_down_required")
+  writeDownAmount     Float    @default(0) @map("write_down_amount") // max(0, (cost - NRV)) * quantityOnHand
+  reason              String?                                    // "Near expiry", "Market price decline", etc.
+  journalEntryId      String?  @map("journal_entry_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  batch        ProductBatch  @relation(fields: [batchId], references: [id])
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  @@map("inventory_valuations")
+}
+
+// =============================================================================
+// APPROVAL WORKFLOW
+// =============================================================================
+
+// Configurable amount-tiered approval rules — e.g. "Purchase Orders under
+// 5,000 GHS need a Manager; over that, need an Admin." Deliberately keyed
+// by role *name* (a plain string) rather than a Role foreign key, matching
+// the same convention `requireRole()` already uses elsewhere in this app.
+// If no active rule covers a given amount for an entity type — including
+// when nothing has been configured yet at all — callers fall back to a
+// safe default (Admin/Manager) rather than approval being wide open by
+// default; see src/lib/approval.ts.
+model ApprovalRule {
+  id           String   @id @default(cuid()) @map("approval_rule_id")
+  entityType   String   @map("entity_type") // "PURCHASE_ORDER" for now; extensible later
+  minAmount    Float    @default(0) @map("min_amount")
+  maxAmount    Float?   @map("max_amount") // null = unbounded upper end
+  requiredRole String   @map("required_role")
+  description  String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("approval_rules")
+}

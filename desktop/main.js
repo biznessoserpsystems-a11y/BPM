@@ -17,6 +17,7 @@
 const { app, BrowserWindow, Menu, dialog, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'server-config.json');
 const APP_TITLE = 'Bizness-Ph-OS';
@@ -97,7 +98,7 @@ function showSetupScreen(message) {
     message: message || 'Enter the address of the server your pharmacy runs on. Ask whoever set up the system if you\u2019re not sure — it usually looks like a local network address (e.g. 192.168.1.20:3000) or a web address your organization was given.',
     showRetry: false,
   });
-  mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  loadLocalPage(html);
 }
 
 function showOfflineScreen(serverUrl) {
@@ -107,7 +108,20 @@ function showOfflineScreen(serverUrl) {
     showRetry: true,
     prefillUrl: serverUrl,
   });
-  mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  loadLocalPage(html);
+}
+
+// Writes the local setup/offline page to a real temp file and loads it via
+// loadFile, rather than a `data:` URL. Both are common Electron patterns,
+// but `data:` URLs are known to behave inconsistently across Electron/
+// Chromium versions and security settings (silently blank pages with no
+// visible error being one failure mode) — a plain file on disk sidesteps
+// that entirely and is the more robust choice for something as basic as
+// "show this local HTML".
+const LOCAL_PAGE_PATH = path.join(os.tmpdir(), 'bizness-ph-os-local-page.html');
+function loadLocalPage(html) {
+  fs.writeFileSync(LOCAL_PAGE_PATH, html, 'utf-8');
+  mainWindow.loadFile(LOCAL_PAGE_PATH);
 }
 
 function connectToServer(url) {

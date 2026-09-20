@@ -86,7 +86,7 @@ export function SidebarNav() {
               <img src={company.logoUrl} alt={`${company.name} logo`} className="h-full w-full object-cover" />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element -- small static brand asset, no benefit from next/image here
-              <img src="/brand/logo-icon.png" alt="Bizness-Ph-OS" className="h-full w-full object-contain p-0.5" />
+              <img src="/brand/logo-icon.png" alt="Bizness-Ph-OS" className="h-full w-full object-contain" />
             )}
           </div>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">

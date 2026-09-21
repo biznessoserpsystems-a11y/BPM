@@ -30,11 +30,13 @@ function loadOrCreateConfig() {
     const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     // Upgrade path: a bundle started before this field existed won't have
     // it yet — add it in place rather than requiring a fresh install.
+    let isNewLicenseSecret = false;
     if (!config.licenseAdminSecret) {
       config.licenseAdminSecret = crypto.randomBytes(32).toString('hex');
       fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+      isNewLicenseSecret = true;
     }
-    return config;
+    return { config, isNewLicenseSecret };
   } catch {
     const config = {
       port: 3210,
@@ -42,13 +44,18 @@ function loadOrCreateConfig() {
       fieldEncryptionKey: crypto.randomBytes(48).toString('hex'),
       // Gates the /admin/licenses panel (see src/app/api/v1/admin/
       // license-tokens/route.ts) — separate from JWT_SECRET so pharmacy
-      // staff logins can never mint license tokens themselves. Printed
-      // to the console below rather than requiring anyone to open this
-      // file by hand.
+      // staff logins can never mint license tokens themselves. Shown
+      // once below, when first generated, rather than requiring anyone
+      // to open this file by hand — but NOT reprinted on every
+      // subsequent start (see show-license-secret.bat for that), since
+      // a secret that reappears in this console on every boot is more
+      // exposure than necessary (screen-shares, remote desktop,
+      // photos, screenshots — all of which have actually happened
+      // during this app's own development).
       licenseAdminSecret: crypto.randomBytes(32).toString('hex'),
     };
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-    return config;
+    return { config, isNewLicenseSecret: true };
   }
 }
 
@@ -74,7 +81,7 @@ function getLanAddress() {
   return null;
 }
 
-const config = loadOrCreateConfig();
+const { config, isNewLicenseSecret } = loadOrCreateConfig();
 ensureDatabase();
 
 const ip = getLanAddress();
@@ -93,12 +100,19 @@ console.log('  Enter the "other computers" address into each desktop');
 console.log('  app\u2019s "Change Server" screen to connect it to this one.');
 console.log('========================================================');
 console.log('');
-console.log('  License admin panel: http://localhost:' + config.port + '/admin/licenses');
-console.log('  Secret (enter this on that page):');
-console.log('    ' + config.licenseAdminSecret);
-console.log('  This only needs to be entered once per browser — treat it');
-console.log('  like a password; whoever has it can generate license');
-console.log('  tokens for new pharmacies.');
+if (isNewLicenseSecret) {
+  console.log('  License admin panel: http://localhost:' + config.port + '/admin/licenses');
+  console.log('  Secret (enter this on that page) \u2014 shown ONLY this once:');
+  console.log('    ' + config.licenseAdminSecret);
+  console.log('  Copy it somewhere safe now (a password manager, not a');
+  console.log('  sticky note). It will NOT be printed again on future');
+  console.log('  starts \u2014 run show-license-secret.bat if you need it');
+  console.log('  again later. Treat it like a password: whoever has it');
+  console.log('  can generate license tokens for new pharmacies.');
+} else {
+  console.log('  License admin panel: http://localhost:' + config.port + '/admin/licenses');
+  console.log('  (run show-license-secret.bat if you need the secret again)');
+}
 console.log('========================================================');
 console.log('');
 console.log('Leave this window open while staff are using the system.');

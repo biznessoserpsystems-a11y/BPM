@@ -130,6 +130,8 @@ jobs:
           Copy-Item "db/template.db" "$bundle/template.db"
           Copy-Item "scripts/server-bundle/start-server.js" "$bundle/start-server.js"
           Copy-Item "scripts/server-bundle/start-server.bat" "$bundle/start-server.bat"
+          Copy-Item "scripts/server-bundle/show-license-secret.js" "$bundle/show-license-secret.js"
+          Copy-Item "scripts/server-bundle/show-license-secret.bat" "$bundle/show-license-secret.bat"
           Copy-Item "scripts/server-bundle/README.txt" "$bundle/README.txt"
           $nodeDir = Get-ChildItem node-portable | Select-Object -First 1
           Copy-Item "$($nodeDir.FullName)/node.exe" "$bundle/node.exe"

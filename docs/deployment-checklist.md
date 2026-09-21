@@ -32,9 +32,14 @@ tab), then confirm the **Releases** page has:
 
 ## 3. Create the first company
 
-- [ ] Generate a license token: on any machine with the source checked
-      out and dependencies installed, run
-      `node scripts/generate-license-token.js "<pharmacy name>" 1`
+- [ ] Generate a license token, either way:
+      - CLI: on any machine with the source checked out, run
+        `node scripts/generate-license-token.js "<pharmacy name>" 1`
+      - Browser: open `/admin/licenses` on the server (the console
+        window from `start-server.bat` shows this address and, the
+        very first time it runs, a one-time secret to unlock the
+        page — see `scripts/server-bundle/show-license-secret.bat`
+        if you need that secret again later)
 - [ ] On the host (or any desktop client once installed), open the app
       and use **Create a company**
 - [ ] Enter the company name, code, admin username/password, and the

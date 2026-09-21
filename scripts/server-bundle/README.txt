@@ -49,10 +49,12 @@ GENERATING LICENSE TOKENS
 --------------------------
 Setting up a new pharmacy on this server requires a license token. The
 console window this script opens prints a "License admin panel" address
-and a secret the first time it runs — open that address in a browser,
-paste in the secret, and you can generate tokens from there. That secret
-is also saved in config.json next to this README if you need it again
-later; treat it like a password.
+and a secret the FIRST time it ever runs — open that address in a
+browser, paste in the secret, and you can generate tokens from there.
+Copy that secret down somewhere safe (a password manager, not a sticky
+note) when you see it, since it is not printed again on later starts.
+If you need to see it again later, double-click show-license-secret.bat
+in this same folder — treat what it shows you like a password.
 
 BACKING UP YOUR DATA
 ---------------------

@@ -45,6 +45,15 @@ So staff don't have to remember to start it:
     see docs/offline-deployment.md in the main project repository for
     the full walkthrough.
 
+GENERATING LICENSE TOKENS
+--------------------------
+Setting up a new pharmacy on this server requires a license token. The
+console window this script opens prints a "License admin panel" address
+and a secret the first time it runs — open that address in a browser,
+paste in the secret, and you can generate tokens from there. That secret
+is also saved in config.json next to this README if you need it again
+later; treat it like a password.
+
 BACKING UP YOUR DATA
 ---------------------
 All of your pharmacy's data lives in one file: db\custom.db, next to

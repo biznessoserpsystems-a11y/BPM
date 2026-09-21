@@ -27,12 +27,25 @@ const CONFIG_PATH = path.join(ROOT, 'config.json');
 
 function loadOrCreateConfig() {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    // Upgrade path: a bundle started before this field existed won't have
+    // it yet — add it in place rather than requiring a fresh install.
+    if (!config.licenseAdminSecret) {
+      config.licenseAdminSecret = crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    }
+    return config;
   } catch {
     const config = {
       port: 3210,
       jwtSecret: crypto.randomBytes(48).toString('hex'),
       fieldEncryptionKey: crypto.randomBytes(48).toString('hex'),
+      // Gates the /admin/licenses panel (see src/app/api/v1/admin/
+      // license-tokens/route.ts) — separate from JWT_SECRET so pharmacy
+      // staff logins can never mint license tokens themselves. Printed
+      // to the console below rather than requiring anyone to open this
+      // file by hand.
+      licenseAdminSecret: crypto.randomBytes(32).toString('hex'),
     };
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
     return config;
@@ -80,6 +93,14 @@ console.log('  Enter the "other computers" address into each desktop');
 console.log('  app\u2019s "Change Server" screen to connect it to this one.');
 console.log('========================================================');
 console.log('');
+console.log('  License admin panel: http://localhost:' + config.port + '/admin/licenses');
+console.log('  Secret (enter this on that page):');
+console.log('    ' + config.licenseAdminSecret);
+console.log('  This only needs to be entered once per browser — treat it');
+console.log('  like a password; whoever has it can generate license');
+console.log('  tokens for new pharmacies.');
+console.log('========================================================');
+console.log('');
 console.log('Leave this window open while staff are using the system.');
 console.log('Closing it will shut the server down for everyone connected.');
 console.log('');
@@ -94,6 +115,7 @@ const child = spawn(process.execPath, [path.join(APP_DIR, 'server.js')], {
     DATABASE_URL: `file:${DB_PATH}`,
     JWT_SECRET: config.jwtSecret,
     FIELD_ENCRYPTION_KEY: config.fieldEncryptionKey,
+    LICENSE_ADMIN_SECRET: config.licenseAdminSecret,
   },
   stdio: 'inherit',
 });

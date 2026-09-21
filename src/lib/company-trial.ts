@@ -5,8 +5,8 @@ type Tx = PrismaClient | Prisma.TransactionClient;
 
 /**
  * Same opt-in shape as assertPeriodOpenForDate: a company with no
- * trialExpiresAt set (null) is unrestricted, forever — that's the seeded
- * default company and anything created outside self-service registration.
+ * trialExpiresAt set (null) is unrestricted, forever — that's anything
+ * created outside self-service registration.
  * Only a company that actually has a trial window checks it, and only
  * throws once that window has genuinely passed.
  *

@@ -14,6 +14,7 @@
  *   node scripts/generate-license-token.js "Acme Pharmacy Group" 5
  */
 const { PrismaClient } = require('@prisma/client');
+const { randomInt } = require('crypto');
 
 const prisma = new PrismaClient();
 
@@ -28,7 +29,7 @@ function generateToken() {
   for (let g = 0; g < 4; g++) {
     let group = '';
     for (let i = 0; i < 4; i++) {
-      group += SAFE_CHARS[Math.floor(Math.random() * SAFE_CHARS.length)];
+      group += SAFE_CHARS[randomInt(SAFE_CHARS.length)];
     }
     groups.push(group);
   }

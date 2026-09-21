@@ -35,12 +35,11 @@ model Company {
   // the pre-login screen still shows the platform's own branding, since
   // it doesn't yet know which company is signing in.
   logoUrl   String?  @map("logo_url")
-  // Null for the seeded default company (and anything created directly,
-  // not through self-service registration) — it never expires, since the
-  // one-click demo login on the sign-in screen depends on it always
-  // working. Only companies created via POST /auth/register-company get
-  // a real 30-day trial window, checked at login time — see
-  // assertCompanyActive() in src/lib/company-trial.ts.
+  // Null for anything created directly, not through self-service
+  // registration — it never expires. Companies created via
+  // POST /auth/register-company get whatever trial window that route
+  // sets (or none), checked at login time — see assertCompanyActive()
+  // in src/lib/company-trial.ts.
   trialExpiresAt DateTime? @map("trial_expires_at")
   // Set only while a reactivation request is pending (see POST
   // /auth/request-reactivation-code and /auth/reactivate). There is no
@@ -51,8 +50,8 @@ model Company {
   reactivationCode          String?   @map("reactivation_code")
   reactivationCodeExpiresAt DateTime? @map("reactivation_code_expires_at")
   // The license token that was redeemed to create this company — null
-  // for the seeded default company and anything created outside
-  // self-service registration. See LicenseToken below.
+  // for anything created outside self-service registration. See
+  // LicenseToken below.
   licenseTokenId String?  @map("license_token_id")
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")

@@ -8,15 +8,12 @@ Work Log:
 - Adapted Prisma schema from PostgreSQL to SQLite (removed enums, changed UUID to CUID, Decimal to Float, BigInt to Int)
 - Pushed schema to SQLite database successfully
 - Installed bcryptjs for password hashing
-- Created comprehensive seed script with demo data:
-  - 4 roles (ADMIN, MANAGER, PHARMACIST, TECHNICIAN)
-  - 4 users across 2 branches
-  - 2 suppliers, 5 products, 9 product batches
-  - 2 prescriptions, 3 sales, 3 inter-branch transfers
-  - Stock adjustments and audit logs
+- Created initial seed script (since reduced to global reference data only:
+  RBAC roles and the current accounting period — no demo users, companies,
+  or sample business data)
 
 Stage Summary:
-- Database fully seeded and ready
+- Schema applied and reference data seeded
 
 ---
 Task ID: 4-a
@@ -90,7 +87,7 @@ Work Log:
 - Updated auth/login to use real JWT (12h expiry, contains userId/username/roleName/homeBranchId)
 - Updated Zustand store with auth state (token, user, isAuthenticated), login/logout/restoreSession actions
 - Created authFetch wrapper that injects Bearer token into all API requests
-- Created LoginOverlay component with professional login form, demo account hints
+- Created LoginOverlay component with professional login form
 - Updated AppShell to show LoginOverlay when not authenticated, restore sessions from localStorage
 - Updated all 8 view components to use authFetch instead of raw fetch
 - Fixed 'use client' ordering issue (import must come after directive)
@@ -99,7 +96,6 @@ Work Log:
 
 Stage Summary:
 - Full auth flow working: login → JWT token → session restore → protected API calls → logout
-- Login overlay shows demo credentials for easy testing
 - All API routes return 401 without auth, 200 with valid JWT
 - Session persists across page reloads via localStorage
 - Verified end-to-end via Agent Browser: login → dashboard loads with branch data → POS works → sign out returns to login

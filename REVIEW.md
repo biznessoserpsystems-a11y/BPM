@@ -7,13 +7,11 @@ API routes *and* a full React frontend (dashboard, POS, inventory,
 prescriptions, transfers, catalog, users, audit) in one project, using
 **SQLite** instead of PostgreSQL. Built by a different agent/tool, using the
 Express/Postgres project from earlier in this conversation as its starting
-reference (confirmed by `worklog.md`, and by both projects independently
-landing on the same demo password `Demo@Password123`).
+reference (confirmed by `worklog.md`).
 
 The big practical upside: **no Docker, no Postgres, no networking headaches**
-— SQLite is just a file (`db/custom.db`), already seeded with demo data
-(4 users, 5 products, 8 batches, 4 sales, 3 transfers), sitting right in the
-project.
+— SQLite is just a file (`db/custom.db`), created locally by `prisma db push`.
+No database, user accounts, or sample data ship with the project.
 
 ## Bugs found and fixed
 
@@ -63,9 +61,7 @@ the wrong branch entirely.
 ## Verification performed
 
 - Installed all 851 packages cleanly (`npm install`)
-- Confirmed the shipped SQLite database already has all 16 tables and real
-  seed data (checked directly with a SQLite query, not just trusting the
-  worklog)
+- Confirmed the schema pushes cleanly to SQLite and creates all 16 tables
 - Ran `npx tsc --noEmit` — same pattern as the Express project: every
   remaining error is exclusively about `@prisma/client` types that only
   exist after `prisma generate` runs (which needs the Prisma engine binary,
@@ -85,12 +81,11 @@ the wrong branch entirely.
 ```bash
 npm install
 npx prisma generate
+npx prisma db push
+npx prisma db seed
 npm run dev
 ```
 
-No `prisma migrate` or `prisma db seed` needed — the database file already
-has schema and data. Open `http://localhost:3000` and log in with any of:
-
-| Username | Password |
-|---|---|
-| `mgr_john`, `rph_sarah`, `tech_mike`, `admin` | `Demo@Password123` |
+There are no pre-made accounts. Open `http://localhost:3000` and use
+**Create a company** on the login screen to set up your first real company
+and Admin account (this needs a license token — see `README.md`).

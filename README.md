@@ -87,6 +87,13 @@ Creating a company requires a **license token** — generate one with:
 node scripts/generate-license-token.js ["optional label"] [maxCompanies]
 ```
 
+Or, without terminal access, use the license admin page at
+`/admin/licenses`. It is separate from the pharmacy login: set
+`LICENSE_ADMIN_SECRET` (at least 24 characters) in the server's `.env`,
+restart, then enter that secret on the page to create tokens and see how
+many companies each one has been used for. If the variable is empty or
+missing, the page and its API stay switched off.
+
 ### Production build
 
 ```bash

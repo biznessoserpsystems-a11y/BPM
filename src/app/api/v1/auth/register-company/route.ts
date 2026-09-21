@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
           licenseTokenId,
           isActive: true,
           // No trial expiry — a company created here is unrestricted,
-          // forever, exactly like the seeded default company. See
+          // forever. See
           // assertCompanyActive() in src/lib/company-trial.ts: a company
           // with trialExpiresAt left null is opt-in-only, same shape as
           // accounting periods — nothing else needs to change for this

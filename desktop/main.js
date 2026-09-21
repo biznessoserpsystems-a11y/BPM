@@ -124,11 +124,64 @@ function loadLocalPage(html) {
   mainWindow.loadFile(LOCAL_PAGE_PATH);
 }
 
+function showConnectingScreen(serverUrl) {
+  const html = buildLocalPage({
+    heading: 'Connecting\u2026',
+    message: `Reaching <strong>${serverUrl}</strong>. This should only take a moment.`,
+    showRetry: false,
+  });
+  loadLocalPage(html);
+}
+
 function connectToServer(url) {
   const serverUrl = normalizeUrl(url);
   if (!serverUrl) return;
   writeServerUrl(serverUrl);
-  mainWindow.loadURL(serverUrl).catch(() => showOfflineScreen(serverUrl));
+  attemptConnection(serverUrl);
+}
+
+// `did-fail-load` fires for the SAME failed navigation that also rejects
+// loadURL's own promise below (Electron/Chromium raises both for one main-
+// frame load failure) — a `connectionToken`, bumped the instant either one
+// acts, stops both from calling showOfflineScreen for the same failure.
+// Without it, a rapid double-call (both hitting mainWindow.loadFile in close
+// succession) could interrupt the first local-page navigation mid-flight
+// with a second identical one — plausible in rare timing as an explanation
+// for a page that stays blank rather than showing the offline card.
+let connectionToken = 0;
+
+// Wraps loadURL with an immediate "Connecting..." page plus a hard timeout.
+// Without this, a server address that's simply unreachable (wrong IP, a
+// firewall silently dropping the connection, or the server not actually
+// running yet) can leave Chromium "still trying" for a long time — Windows
+// network timeouts for an unreachable host are commonly 20+ seconds, some
+// far longer — with nothing on screen but the window's plain background
+// color the entire time. That looks exactly like a frozen/broken app, even
+// though nothing has technically failed yet. A few seconds is enough for
+// any server that's actually up and reachable on a local network.
+const CONNECT_TIMEOUT_MS = 6000;
+function attemptConnection(serverUrl) {
+  const token = ++connectionToken;
+  showConnectingScreen(serverUrl);
+
+  const timeout = setTimeout(() => {
+    if (token !== connectionToken) return; // superseded by a newer attempt
+    connectionToken++;
+    showOfflineScreen(serverUrl);
+  }, CONNECT_TIMEOUT_MS);
+
+  mainWindow
+    .loadURL(serverUrl)
+    .then(() => {
+      if (token !== connectionToken) return;
+      clearTimeout(timeout);
+    })
+    .catch(() => {
+      if (token !== connectionToken) return;
+      clearTimeout(timeout);
+      connectionToken++;
+      showOfflineScreen(serverUrl);
+    });
 }
 
 function createWindow() {
@@ -150,12 +203,16 @@ function createWindow() {
     },
   });
 
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode) => {
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, _errorDescription, _validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
     // -3 is Chromium's ERR_ABORTED, which fires on normal navigations
-    // (e.g. a client-side redirect) — not a real connection failure.
+    // (e.g. a client-side redirect, or us intentionally starting a new
+    // navigation before this one finished) — not a real connection failure.
     if (errorCode === -3) return;
     const current = readServerUrl();
-    if (current) showOfflineScreen(current);
+    if (!current) return;
+    connectionToken++; // supersede so attemptConnection's own .catch()/timeout don't also fire
+    showOfflineScreen(current);
   });
 
   // Open links the app points at an external site (e.g. a "learn more"
@@ -167,7 +224,7 @@ function createWindow() {
 
   const existingUrl = readServerUrl();
   if (existingUrl) {
-    mainWindow.loadURL(existingUrl).catch(() => showOfflineScreen(existingUrl));
+    attemptConnection(existingUrl);
   } else {
     showSetupScreen();
   }

@@ -201,8 +201,10 @@ function RegisterCompanyForm({ onBackToSignIn }: { onBackToSignIn: () => void })
           body: JSON.stringify({ token }),
         });
         setTokenCheck({ status: result.valid ? 'valid' : 'invalid', message: result.message, remaining: result.remaining });
-      } catch {
-        setTokenCheck({ status: 'invalid', message: 'Could not check this token — try again' });
+      } catch (err) {
+        // Show the server's actual reason (e.g. a rate limit) instead of a
+        // generic message that makes a valid token look broken.
+        setTokenCheck({ status: 'invalid', message: err instanceof Error && err.message ? err.message : 'Could not check this token — try again' });
       }
     }, 500);
     return () => clearTimeout(timer);

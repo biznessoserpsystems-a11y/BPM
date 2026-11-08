@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { handleApiError } from '@/lib/api-error';
 import { PharmacyServiceError } from '@/lib/errors';
-import { checkRegistrationAllowed, recordRegistrationAttempt } from '@/lib/rate-limit';
+import { checkTokenCheckAllowed, recordTokenCheck } from '@/lib/rate-limit';
 import { checkLicenseToken } from '@/lib/license-token';
 
 function clientIp(request: NextRequest): string {
@@ -11,17 +11,19 @@ function clientIp(request: NextRequest): string {
 
 /**
  * Public and read-only — never consumes a slot, only reports whether one
- * exists. Rate-limited the same as registration itself, since it's still
- * a public endpoint someone could otherwise use to enumerate tokens by
- * brute force.
+ * exists. Still rate-limited, since it's a public endpoint someone could
+ * otherwise use to enumerate tokens — but with its OWN allowance, not the
+ * 5-per-hour company-registration one: the form calls this as the person
+ * types or pastes, so sharing that tiny allowance made valid tokens look
+ * broken after a couple of attempts (see rate-limit.ts).
  */
 export async function POST(request: NextRequest) {
   try {
     const ip = clientIp(request);
-    if (!checkRegistrationAllowed(ip)) {
-      throw new PharmacyServiceError('Too many attempts from this connection — try again later.');
+    if (!checkTokenCheckAllowed(ip)) {
+      throw new PharmacyServiceError('Too many token checks from this connection — wait a few minutes and try again.');
     }
-    recordRegistrationAttempt(ip);
+    recordTokenCheck(ip);
 
     const body = await request.json();
     const token: string | undefined = body.token?.trim();

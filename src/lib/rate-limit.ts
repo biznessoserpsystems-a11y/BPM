@@ -107,3 +107,48 @@ export function recordRegistrationAttempt(ip: string): void {
     entry.count += 1;
   }
 }
+
+// ---------------------------------------------------------------------------
+// License token pre-checks — the registration form validates the token as
+// the person types/pastes it (see POST /auth/validate-license-token), which
+// is read-only and consumes nothing. These MUST NOT draw from the 5-per-hour
+// registration allowance above: that allowance is for creating companies,
+// and a couple of pauses while typing a 16-character token would otherwise
+// use it up — then a perfectly valid token gets rejected. On the offline
+// server bundle every PC on the LAN also shares one IP bucket (direct
+// connections carry no x-forwarded-for), so a separate, more generous limit
+// matters even more there. Tokens are 31^16 possibilities, so brute-forcing
+// one is infeasible at any rate this still allows.
+// ---------------------------------------------------------------------------
+
+const TOKEN_CHECK_MAX = 60;
+const TOKEN_CHECK_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
+const tokenChecksByIp = new Map<string, { count: number; firstAttemptAt: number }>();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of tokenChecksByIp) {
+    if (now - entry.firstAttemptAt > TOKEN_CHECK_WINDOW_MS) {
+      tokenChecksByIp.delete(key);
+    }
+  }
+}, 60 * 60 * 1000).unref();
+
+/** Returns true if this IP is still within its token-check allowance. */
+export function checkTokenCheckAllowed(ip: string): boolean {
+  const entry = tokenChecksByIp.get(ip);
+  if (!entry || Date.now() - entry.firstAttemptAt > TOKEN_CHECK_WINDOW_MS) return true;
+  return entry.count < TOKEN_CHECK_MAX;
+}
+
+/** Call on every token pre-check. */
+export function recordTokenCheck(ip: string): void {
+  const now = Date.now();
+  const entry = tokenChecksByIp.get(ip);
+  if (!entry || now - entry.firstAttemptAt > TOKEN_CHECK_WINDOW_MS) {
+    tokenChecksByIp.set(ip, { count: 1, firstAttemptAt: now });
+  } else {
+    entry.count += 1;
+  }
+}

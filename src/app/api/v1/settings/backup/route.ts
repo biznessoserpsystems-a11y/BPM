@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
-import path from 'path';
 import { handleApiError } from '@/lib/api-error';
 import { PharmacyServiceError } from '@/lib/errors';
 import { getAuthPayload, isAuthError, requireRole } from '@/lib/auth';
 import { writeAuditLog } from '@/lib/audit-log';
 import { db } from '@/lib/db';
+import { dbFilePath } from '@/lib/db-file';
 
 const CAN_MANAGE_BACKUP = ['ADMIN'];
-
-// The actual file backing DATABASE_URL=file:../db/custom.db — that path is
-// resolved relative to prisma/schema.prisma's own location, which is why
-// it's "../db" there but plain "db" here (this route runs with cwd at the
-// project root, not inside prisma/).
-function dbFilePath(): string {
-  return path.join(process.cwd(), 'db', 'custom.db');
-}
 
 export async function GET(request: NextRequest) {
   try {

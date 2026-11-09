@@ -6,15 +6,12 @@ import { PharmacyServiceError } from '@/lib/errors';
 import { getAuthPayload, isAuthError, requireRole } from '@/lib/auth';
 import { writeAuditLog } from '@/lib/audit-log';
 import { db } from '@/lib/db';
+import { dbFilePath, dbDirPath } from '@/lib/db-file';
 
 const CAN_MANAGE_BACKUP = ['ADMIN'];
 
 // First 16 bytes of every valid SQLite database file.
 const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'utf8');
-
-function dbFilePath(): string {
-  return path.join(process.cwd(), 'db', 'custom.db');
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -55,7 +52,7 @@ export async function POST(request: NextRequest) {
     // restore, in case the uploaded file turns out to be bad in a way the
     // header check above can't catch (e.g. a backup from an incompatible
     // schema version).
-    const backupDir = path.join(process.cwd(), 'db', 'pre-restore-backups');
+    const backupDir = path.join(dbDirPath(), 'pre-restore-backups');
     await mkdir(backupDir, { recursive: true });
     const safetyPath = path.join(backupDir, `pre-restore-${Date.now()}.db`);
     await copyFile(dbPath, safetyPath);

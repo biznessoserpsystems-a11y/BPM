@@ -5,6 +5,8 @@ import { PharmacyServiceError } from '@/lib/errors';
 import type { ReceiveBatchInput } from '@/types/pharmacy';
 import { getAuthPayload, isAuthError } from '@/lib/auth';
 import { canAccessBranch } from '@/lib/branch-access';
+import { writeAuditLog } from '@/lib/audit-log';
+import { costPerBaseUnit, resolveReceivingUnit, toBaseQuantity } from '@/lib/product-units';
 
 export async function GET(request: NextRequest) {
   try {
@@ -57,22 +59,80 @@ export async function POST(request: NextRequest) {
       throw new PharmacyServiceError("You do not have access to this branch's data");
     }
 
-    const batch = await db.productBatch.create({
-      data: {
-        branchId: body.branchId,
-        productId: body.productId,
-        supplierId: body.supplierId,
-        batchNumber: body.batchNumber,
-        expiryDate: new Date(body.expiryDate),
-        purchasePrice: body.purchasePrice ?? 0,
-        sellingPrice: body.sellingPrice,
-        quantityReceived: body.quantityReceived,
-        quantityInStock: body.quantityReceived,
-      },
-      include: { product: true, supplier: true },
+    // The product must be one of the caller's own company's (this was never
+    // checked: stock could be received against another company's product).
+    const product = await db.product.findFirst({
+      where: { id: body.productId, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!product) {
+      throw new PharmacyServiceError('Product not found');
+    }
+
+    // Stock is always stored in the product's BASE unit. If the quantity was
+    // entered in a packaging unit ("5 boxes", 1 box = 10 pieces) it's
+    // converted HERE, on the server, from the product's saved setup — the
+    // client's arithmetic is only ever a preview. The purchase price is
+    // quoted per receiving unit and becomes a per-base-unit cost; the selling
+    // price is per base unit already (it's what the till sells by).
+    const { batch, unit, baseQuantity } = await db.$transaction(async (tx) => {
+      const unit = await resolveReceivingUnit(tx, product.id, {
+        unit: body.receivingUnit,
+        define: body.defineUnit,
+      });
+      const baseQuantity = toBaseQuantity(body.quantityReceived, unit.unitsPer);
+      const costPerBase = costPerBaseUnit(body.purchasePrice ?? 0, unit.unitsPer);
+
+      const batch = await tx.productBatch.create({
+        data: {
+          branchId: body.branchId,
+          productId: product.id,
+          supplierId: body.supplierId,
+          batchNumber: body.batchNumber,
+          expiryDate: new Date(body.expiryDate),
+          purchasePrice: costPerBase,
+          sellingPrice: body.sellingPrice,
+          quantityReceived: baseQuantity,
+          quantityInStock: baseQuantity,
+        },
+        include: { product: true, supplier: true },
+      });
+
+      // Only worth a trail when a conversion actually happened.
+      if (unit.unitsPer !== 1) {
+        await writeAuditLog(tx, {
+          branchId: body.branchId,
+          userId: auth.userId,
+          action: 'RECEIVE_BATCH_IN_PACKS',
+          entityName: 'ProductBatch',
+          entityId: String(batch.id),
+          details: {
+            received: `${body.quantityReceived} ${unit.unit}`,
+            unitsPerPack: unit.unitsPer,
+            addedToStock: `${baseQuantity} ${unit.baseUnit}`,
+            purchasePricePerUnit: body.purchasePrice ?? 0,
+            costPerBaseUnit: costPerBase,
+          },
+        });
+      }
+      return { batch, unit, baseQuantity };
     });
 
-    return NextResponse.json(batch, { status: 201 });
+    // The batch, plus a plain description of what was converted so the form
+    // can tell the person exactly what went into stock.
+    return NextResponse.json(
+      {
+        ...batch,
+        received: {
+          quantity: body.quantityReceived,
+          unit: unit.unit,
+          unitsPer: unit.unitsPer,
+          baseQuantity,
+          baseUnit: unit.baseUnit,
+        },
+      },
+      { status: 201 }
+    );
   } catch (error) {
     return handleApiError(error);
   }

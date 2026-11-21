@@ -114,8 +114,17 @@ export interface ReceiveBatchInput {
   expiryDate: string;
   purchasePrice: number;
   sellingPrice: number;
+  /** Entered in `receivingUnit` (when given) — the server converts it to the product's base unit. */
   quantityReceived: number;
   receivedByUserId: number;
+  /**
+   * Unit the quantity and purchasePrice are entered in, e.g. "box". Absent or
+   * equal to the product's base unit means no conversion. purchasePrice is per
+   * THIS unit; sellingPrice is always per base unit (what the till sells).
+   */
+  receivingUnit?: string;
+  /** Set up a new packaging unit on the product while receiving: 1 <name> = <unitsPer> <baseUnit>. */
+  defineUnit?: { name: string; unitsPer: number; baseUnit?: string };
 }
 
 export interface PrescriptionItemInput {

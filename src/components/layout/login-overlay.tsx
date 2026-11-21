@@ -140,6 +140,11 @@ export function LoginOverlay() {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Forgot your password? Ask your administrator to reset it. If you are the
+                    administrator, run <span className="font-medium">reset-password.bat</span> in the
+                    server folder on the server computer.
+                  </p>
                 </div>
 
                 <Button

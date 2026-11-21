@@ -29,7 +29,12 @@ export async function GET(request: NextRequest) {
       if (roleError) return roleError;
     }
 
-    const where = branchId ? { homeBranchId: branchId } : {};
+    // Always limited to the caller's own company — without this, the
+    // no-branch "whole directory" view listed every company's staff on a
+    // server hosting more than one pharmacy.
+    const where = branchId
+      ? { companyId: auth.companyId, homeBranchId: branchId }
+      : { companyId: auth.companyId };
 
     const users = await db.user.findMany({
       where,

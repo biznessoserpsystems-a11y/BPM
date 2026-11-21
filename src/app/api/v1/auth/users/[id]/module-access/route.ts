@@ -25,7 +25,8 @@ export async function GET(
     const { id } = await params;
     const userId = Number(id);
 
-    const targetUser = await db.user.findUnique({ where: { id: userId } });
+    // Own company only — another company's user is just "not found".
+    const targetUser = await db.user.findFirst({ where: { id: userId, companyId: auth.companyId } });
     if (!targetUser) {
       throw new PharmacyServiceError('User not found');
     }
@@ -67,7 +68,8 @@ export async function PUT(
       throw new PharmacyServiceError(`Unknown portal "${moduleKey}"`);
     }
 
-    const targetUser = await db.user.findUnique({ where: { id: userId } });
+    // Own company only — another company's user is just "not found".
+    const targetUser = await db.user.findFirst({ where: { id: userId, companyId: auth.companyId } });
     if (!targetUser) {
       throw new PharmacyServiceError('User not found');
     }

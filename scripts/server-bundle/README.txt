@@ -56,6 +56,26 @@ note) when you see it, since it is not printed again on later starts.
 If you need to see it again later, double-click show-license-secret.bat
 in this same folder — treat what it shows you like a password.
 
+FORGOT A PASSWORD
+------------------
+Staff: ask an administrator. In the app, an Admin opens Users, clicks
+"Reset Password" next to the person, and sets a new one. (A Manager can do
+this for ordinary staff, but only an Admin can reset an Admin or Manager.)
+Your own password is changed in Settings -> Change Password.
+
+If the ADMINISTRATOR forgot theirs and nobody else can sign in: there is no
+email on an offline server, so use the recovery tool, which only works from
+this computer:
+  1. On the server computer, double-click reset-password.bat in this folder.
+  2. Type the administrator's username (the window lists the admin accounts).
+  3. Type the new password twice (it is not shown as you type).
+Then sign in as normal. The change is recorded in the app's Audit Log. If the
+account had been locked by too many wrong attempts, restart the server (or
+wait 15 minutes).
+
+Anyone who can open this folder can run that tool, so keep the server
+computer and this folder to people you trust.
+
 BACKING UP YOUR DATA
 ---------------------
 All of your pharmacy's data lives in one file: db\custom.db, next to

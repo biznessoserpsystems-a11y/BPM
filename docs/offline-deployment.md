@@ -73,6 +73,20 @@ options, in order of effort:
   can be set to restart automatically if it ever crashes
   (`nssm set BiznessPhOS AppExit Default Restart`).
 
+### Forgotten passwords
+
+- **Staff:** an Admin opens **Users → Reset Password** for that person. A
+  Manager can do this for ordinary staff, but only an Admin can reset an
+  Admin or Manager. Everyone changes their own password in **Settings →
+  Change Password** (which asks for the current one). Resets only ever
+  reach users in the same company, and every one is written to the Audit
+  Log.
+- **The Admin themselves:** with no email on an offline server, run
+  `reset-password.bat` on the server computer. It lists the admin accounts,
+  asks for the username and a new password (hidden as typed), and logs the
+  change as `OFFLINE_RESET_PASSWORD`. It needs access to the server's own
+  folder, which is the point — it can't be used remotely.
+
 ### Backing up
 
 Everything is one file: `db\custom.db`, next to wherever you extracted

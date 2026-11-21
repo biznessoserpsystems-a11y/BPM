@@ -479,6 +479,7 @@ model Product {
   journalLines      JournalLine[]
   purchaseOrderItems PurchaseOrderItem[]
   goodsReceiptItems  GoodsReceiptItem[]
+  units              ProductUnit[]
 
   // Unique per company rather than globally — two independent pharmacies
   // legitimately reuse the same SKU/barcode conventions (e.g. both using
@@ -488,6 +489,36 @@ model Product {
   @@unique([companyId, skuCode])
   @@unique([companyId, barcode])
   @@map("products")
+}
+
+/// How a product is counted and packed.
+///
+/// Stock itself — ProductBatch.quantityInStock, sales, prescriptions,
+/// transfers, adjustments, valuations — is ALWAYS held in the product's BASE
+/// unit (e.g. "piece", "strip", "bottle"), exactly as before this model
+/// existed. Everything else here is a conversion INTO that base unit, used
+/// when receiving stock: "1 box = 10 pieces" means receiving 5 boxes adds 50
+/// pieces. That keeps every downstream calculation (FEFO picking, POS,
+/// costing) unchanged.
+///
+/// A product with no rows is counted in "piece" with no packaging, i.e.
+/// exactly how every product behaved before. Rows are only created when
+/// someone sets packaging up (Settings -> Units of Measure, or inline on the
+/// Receive Goods form). Exactly one row per product may have isBase = true
+/// (unitsPer = 1); the rest are packaging units (unitsPer >= 2).
+/// `name` is stored trimmed and lower-cased so "Box" and "box" are one unit.
+model ProductUnit {
+  id        Int      @id @default(autoincrement()) @map("product_unit_id")
+  productId Int      @map("product_id")
+  name      String
+  unitsPer  Int      @map("units_per")
+  isBase    Boolean  @default(false) @map("is_base")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, name])
+  @@map("product_units")
 }
 
 model ProductBatch {

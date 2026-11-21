@@ -23,8 +23,10 @@ export async function GET(
       throw new PharmacyServiceError('Not permitted to view this user');
     }
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
+    // Scoped to the caller's own company — another company's user is just
+    // "not found", never readable by id.
+    const user = await db.user.findFirst({
+      where: { id: userId, companyId: auth.companyId },
       include: { role: { include: { permissions: { include: { permission: true } } } } },
     });
 
@@ -70,7 +72,9 @@ export async function PATCH(
       throw new PharmacyServiceError('You cannot deactivate your own account');
     }
 
-    const existing = await db.user.findUnique({ where: { id: userId } });
+    // Own company only — otherwise an Admin/Manager of one pharmacy could
+    // deactivate, or re-role, a user belonging to another pharmacy.
+    const existing = await db.user.findFirst({ where: { id: userId, companyId: auth.companyId } });
     if (!existing) {
       throw new PharmacyServiceError('User not found');
     }

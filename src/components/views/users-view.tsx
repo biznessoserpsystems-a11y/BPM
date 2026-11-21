@@ -95,6 +95,14 @@ export function UsersView() {
   // the merely-administrative stuff Manager retains (deactivating an
   // account, resetting a forgotten password).
   const canAssignRoles = currentUser?.roleName === 'ADMIN';
+  // Mirrors the server's rules for POST /auth/users/[id]/reset-password so
+  // the button only appears where the request can actually succeed: never
+  // on your own row (use Settings -> Change Password), and a Manager can't
+  // reset an Admin or another Manager — only an Admin can.
+  const canResetPasswordFor = (u: User) =>
+    canManageAccess &&
+    u.id !== currentUser?.id &&
+    (currentUser?.roleName === 'ADMIN' || !['ADMIN', 'MANAGER'].includes(u.role?.roleName ?? ''));
   const { branches } = useBranches();
   const [userSearch, setUserSearch] = useState('');
 
@@ -404,14 +412,16 @@ export function UsersView() {
                     </TableCell>
                     {canManageAccess && (
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={() => setResetTarget(user)}
-                        >
-                          <KeyRound className="h-3 w-3 mr-1" /> Reset Password
-                        </Button>
+                        {canResetPasswordFor(user) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => setResetTarget(user)}
+                          >
+                            <KeyRound className="h-3 w-3 mr-1" /> Reset Password
+                          </Button>
+                        )}
                       </TableCell>
                     )}
                   </TableRow>

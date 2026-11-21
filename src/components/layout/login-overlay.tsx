@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePharmacyStore, type AuthUser } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -140,6 +140,11 @@ export function LoginOverlay() {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Forgot your password? Ask your administrator to reset it. If you are the
+                    administrator, run <span className="font-medium">reset-password.bat</span> in the
+                    server folder on the server computer.
+                  </p>
                 </div>
 
                 <Button
@@ -181,6 +186,10 @@ function RegisterCompanyForm({ onBackToSignIn }: { onBackToSignIn: () => void })
   });
   const [logoPreview, setLogoPreview] = useState('');
   const [error, setError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [error]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [tokenCheck, setTokenCheck] = useState<{ status: 'idle' | 'checking' | 'valid' | 'invalid'; message?: string; remaining?: number }>({ status: 'idle' });
 
@@ -269,12 +278,6 @@ function RegisterCompanyForm({ onBackToSignIn }: { onBackToSignIn: () => void })
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-3">
-        {error && (
-          <div className="rounded-md bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
-            {error}
-          </div>
-        )}
-
         <div className="space-y-1.5">
           <Label htmlFor="licenseToken">License Token</Label>
           <Input
@@ -309,7 +312,7 @@ function RegisterCompanyForm({ onBackToSignIn }: { onBackToSignIn: () => void })
 
         <div className="space-y-1.5">
           <Label htmlFor="companyCode">Company Code</Label>
-          <Input id="companyCode" placeholder="acme-pharma" value={form.companyCode} onChange={(e) => setForm((f) => ({ ...f, companyCode: e.target.value.toLowerCase() }))} disabled={isSubmitting} />
+          <Input id="companyCode" placeholder="acme-pharma" value={form.companyCode} onChange={(e) => setForm((f) => ({ ...f, companyCode: e.target.value.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '') }))} disabled={isSubmitting} />
           <p className="text-[10px] text-muted-foreground">Lowercase letters, numbers, and hyphens only — used as your first branch&apos;s code.</p>
         </div>
 
@@ -358,6 +361,16 @@ function RegisterCompanyForm({ onBackToSignIn }: { onBackToSignIn: () => void })
           separate from any other company here, with a starter set of accounts already set up. An Admin can
           edit or extend that from Settings after signing in.
         </div>
+
+        {/* Shown right above the button, not at the top of this long form:
+            the person is looking at the button when they click it, and an
+            error up at the top was out of view — it looked like nothing
+            happened. */}
+        {error && (
+          <div ref={errorRef} role="alert" className="rounded-md bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
 
         <Button type="submit" className="w-full bg-brand-600 hover:bg-brand-700" disabled={isSubmitting || tokenCheck.status !== 'valid'} loading={isSubmitting}>
           {isSubmitting ? 'Setting up...' : 'Create Company & Sign In'}

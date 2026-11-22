@@ -30,9 +30,10 @@ export async function GET(request: NextRequest) {
       where: { product: { companyId: auth.companyId } },
       orderBy: [{ productId: 'asc' }, { unitsPer: 'asc' }, { name: 'asc' }],
     });
-    const byProduct = new Map<number, { productId: number; baseUnit: string; packs: { name: string; unitsPer: number }[] }>();
+    type Setup = { productId: number; baseUnit: string; packs: { name: string; unitsPer: number }[] };
+    const byProduct = new Map<number, Setup>();
     for (const r of rows) {
-      const entry = byProduct.get(r.productId) ?? { productId: r.productId, baseUnit: DEFAULT_BASE_UNIT, packs: [] };
+      const entry: Setup = byProduct.get(r.productId) ?? { productId: r.productId, baseUnit: DEFAULT_BASE_UNIT, packs: [] };
       if (r.isBase) entry.baseUnit = r.name;
       else entry.packs.push({ name: r.name, unitsPer: r.unitsPer });
       byProduct.set(r.productId, entry);

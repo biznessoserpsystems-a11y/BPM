@@ -295,6 +295,7 @@ model User {
   approvedPurchaseOrders  PurchaseOrder[]  @relation("ApprovedPurchaseOrders")
   receivedGoodsReceipts   GoodsReceipt[]
   moduleAccess            UserModuleAccess[]
+  permissionOverrides UserPermission[]
   processedSalesReturns   SalesReturn[]
   employeeRecord          Employee?
   processedPayRuns        PayRun[]
@@ -322,6 +323,27 @@ model UserModuleAccess {
 
   @@unique([userId, moduleKey])
   @@map("user_module_access")
+}
+
+/// A per-user override of one built-in capability (see
+/// src/lib/inventory-permissions.ts for the list and the role defaults).
+/// No row = "use the role's default". allowed = true grants it even where the
+/// role wouldn't, false takes it away even where the role would. Only an
+/// Admin can change these, and unlike Portal Access above they are ENFORCED
+/// by the API, not just used to hide buttons. Administrators always have
+/// every capability regardless of rows here.
+model UserPermission {
+  id              Int      @id @default(autoincrement()) @map("user_permission_id")
+  userId          Int      @map("user_id")
+  permission      String
+  allowed         Boolean
+  updatedByUserId Int?     @map("updated_by_user_id")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@map("user_permissions")
 }
 
 model Supplier {

@@ -37,6 +37,24 @@ const UPGRADES = [
       `CREATE UNIQUE INDEX "product_units_product_id_name_key" ON "product_units"("product_id", "name")`,
     ],
   },
+  {
+    id: 'user-permissions',
+    // Per-user inventory capabilities an Admin can grant or take away
+    // (see model UserPermission).
+    table: 'user_permissions',
+    statements: [
+      `CREATE TABLE "user_permissions" (
+    "user_permission_id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "user_id" INTEGER NOT NULL,
+    "permission" TEXT NOT NULL,
+    "allowed" BOOLEAN NOT NULL,
+    "updated_by_user_id" INTEGER,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "user_permissions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("user_id") ON DELETE CASCADE ON UPDATE CASCADE
+)`,
+      `CREATE UNIQUE INDEX "user_permissions_user_id_permission_key" ON "user_permissions"("user_id", "permission")`,
+    ],
+  },
 ];
 
 function timestamp() {

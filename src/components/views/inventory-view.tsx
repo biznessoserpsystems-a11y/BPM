@@ -43,6 +43,8 @@ import { formatMoney } from '@/lib/currency';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { fetchJson } from '@/lib/fetch-json';
 import { ReceiveUnitPicker } from '@/components/views/receive-unit-picker';
+import { AdjustStockDialog, EditBatchDialog } from '@/components/views/batch-actions';
+import { useInventoryPermissions } from '@/hooks/use-inventory-permissions';
 import { deriveReceiveUnit, EMPTY_UNIT_FORM, type UnitFormState, type UnitSetup } from '@/lib/receive-units';
 import { ErrorBanner, errorMessage } from '@/components/ui/error-banner';
 
@@ -55,6 +57,7 @@ interface Batch {
   purchasePrice: number;
   sellingPrice: number;
   expiryDate: string;
+  supplierId?: number | null;
   product?: { brandName: string; genericName: string; skuCode: string };
   supplier?: { name: string };
 }
@@ -96,6 +99,15 @@ export function InventoryView() {
   const canEditInventory = canEdit('inventory');
   const queryClient = useQueryClient();
   const baseCurrency = useBaseCurrency();
+  // What this person may do to received stock — decided by the server (role
+  // default + anything an Admin granted or took away). The buttons below only
+  // show when it'd work; the API enforces it again regardless.
+  const { canEditBatch, canEditExpiry, canAdjust } = useInventoryPermissions();
+  const showEditAction = canEditInventory && (canEditBatch || canEditExpiry);
+  const showAdjustAction = canEditInventory && canAdjust;
+  const showBatchActions = showEditAction || showAdjustAction;
+  const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
+  const [adjustingBatch, setAdjustingBatch] = useState<Batch | null>(null);
   const batchNumberRef = useRef<HTMLInputElement>(null);
   const expiryDateRef = useRef<HTMLInputElement>(null);
   // Lazy initializer so consumePendingTab() (which clears the pending tab
@@ -407,6 +419,19 @@ export function InventoryView() {
       </div>
 
       {/* Batches Tab */}
+      {editingBatch && (
+        <EditBatchDialog
+          batch={editingBatch}
+          suppliers={suppliers}
+          canEditDetails={canEditBatch}
+          canEditExpiry={canEditExpiry}
+          onClose={() => setEditingBatch(null)}
+        />
+      )}
+      {adjustingBatch && (
+        <AdjustStockDialog batch={adjustingBatch} baseCurrency={baseCurrency} onClose={() => setAdjustingBatch(null)} />
+      )}
+
       <TabsContent value="batches">
         <Card>
           <CardContent className="p-0">
@@ -438,6 +463,7 @@ export function InventoryView() {
                       <TableHead>Selling</TableHead>
                       <TableHead>Expiry</TableHead>
                       <TableHead>Supplier</TableHead>
+                      {showBatchActions && <TableHead className="w-44" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -476,6 +502,22 @@ export function InventoryView() {
                           <TableCell className="text-sm text-muted-foreground">
                             {batch.supplier?.name || '-'}
                           </TableCell>
+                          {showBatchActions && (
+                            <TableCell>
+                              <div className="flex gap-1.5">
+                                {showEditAction && (
+                                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingBatch(batch)}>
+                                    Edit
+                                  </Button>
+                                )}
+                                {showAdjustAction && (
+                                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAdjustingBatch(batch)}>
+                                    Adjust stock
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}

@@ -37,6 +37,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { UserCog, Link2, ShieldCheck, Plus, KeyRound, AlertTriangle, GitBranch, DatabaseBackup, Download, Upload, AlertOctagon, Building2, Pencil, LayoutGrid, Image, Ruler } from 'lucide-react';
 import { UnitsOfMeasureSection } from '@/components/views/units-of-measure-settings';
+import { InventoryPermissionsSection } from '@/components/views/inventory-permissions-settings';
 import { toast } from 'sonner';
 import { usePharmacyStore, authFetch } from '@/lib/store';
 import { fetchJson } from '@/lib/fetch-json';
@@ -890,6 +891,7 @@ function AccessControlSection({ queryClient }: { queryClient: ReturnType<typeof 
       </Card>
 
       <PortalAccessSection />
+      <InventoryPermissionsSection />
     </div>
   );
 }

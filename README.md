@@ -21,8 +21,9 @@ offline: no external database server, no third-party services.
   inventory valuations, accounting periods
 - **Payroll** *(Admin/Manager)* — employees, pay runs, PAYE/SSNIT tax
   settings
-- **Reports** — income statement, balance sheet, cash flow, trial
-  balance, AP/AR aging, business analysis
+- **Reports** — weekly sales (invoice ref, products sold, amounts; PDF and
+  CSV), income statement, balance sheet, cash flow, trial balance, AP/AR
+  aging, business analysis
 - **Users** *(Admin/Manager)* — staff directory and roles
 - **Audit Log** *(Admin/Manager)* — system audit trail
 - **Settings** — profile, company, branches, GL mappings, approval

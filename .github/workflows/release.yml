@@ -132,10 +132,64 @@ jobs:
           Copy-Item "scripts/server-bundle/start-server.bat" "$bundle/start-server.bat"
           Copy-Item "scripts/server-bundle/show-license-secret.js" "$bundle/show-license-secret.js"
           Copy-Item "scripts/server-bundle/show-license-secret.bat" "$bundle/show-license-secret.bat"
+          # start-server.js requires this at every start to bring an existing
+          # database up to date (new tables) before the server opens it —
+          # without it the bundle would refuse to start.
+          Copy-Item "scripts/server-bundle/ensure-schema.js" "$bundle/ensure-schema.js"
+          Copy-Item "scripts/server-bundle/reset-password.js" "$bundle/reset-password.js"
+          Copy-Item "scripts/server-bundle/reset-password.bat" "$bundle/reset-password.bat"
+          # bcryptjs is compiled into the app's server chunks rather than
+          # shipped as its own module, but reset-password.js (run with the
+          # bundled node.exe, outside the app) needs the real package.
+          New-Item -ItemType Directory -Force -Path "$bundle/app/node_modules" | Out-Null
+          Copy-Item -Recurse "node_modules/bcryptjs" "$bundle/app/node_modules/bcryptjs"
           Copy-Item "scripts/server-bundle/README.txt" "$bundle/README.txt"
           $nodeDir = Get-ChildItem node-portable | Select-Object -First 1
           Copy-Item "$($nodeDir.FullName)/node.exe" "$bundle/node.exe"
           Compress-Archive -Path "$bundle/*" -DestinationPath "BiznessPhOS-Server-Windows.zip"
+
+      - name: Smoke-test the bundle (database engine, upgrade step, password-reset dependencies)
+        # Runs the bundle's OWN node.exe and Prisma engine, the same way a
+        # pharmacy's computer will. A bundle that can't open its database,
+        # can't upgrade an older one, or lacks what reset-password.js needs
+        # fails here instead of at a pharmacy.
+        shell: pwsh
+        run: |
+          $env:DATABASE_URL = "file:" + (Resolve-Path "bundle/template.db").Path
+          @'
+          const path = require('path');
+          const fs = require('fs');
+          const os = require('os');
+          const { PrismaClient } = require(path.resolve('bundle', 'app', 'node_modules', '@prisma', 'client'));
+          const bcrypt = require(path.resolve('bundle', 'app', 'node_modules', 'bcryptjs'));
+          const { upgradeDatabase, UPGRADES } = require(path.resolve('bundle', 'ensure-schema.js'));
+
+          (async () => {
+            // 1. the template opens, has its roles, and bcrypt works
+            const prisma = new PrismaClient();
+            const roles = await prisma.role.count();
+            const ok = bcrypt.compareSync('Abc12345', bcrypt.hashSync('Abc12345', 4));
+            console.log('roles in template db:', roles, '| bcrypt ok:', ok);
+            if (roles < 3 || !ok) process.exit(1);
+            await prisma.$disconnect();
+
+            // 2. an OLDER database (new tables missing) gets upgraded, and the app's own client can then use them
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-smoke-'));
+            fs.mkdirSync(path.join(dir, 'db'));
+            const copy = path.join(dir, 'db', 'custom.db');
+            fs.copyFileSync(path.resolve('bundle', 'template.db'), copy);
+            const old = new PrismaClient({ datasourceUrl: 'file:' + copy });
+            for (const u of [...UPGRADES].reverse()) await old.$executeRawUnsafe('DROP TABLE IF EXISTS "' + u.table + '"');
+            const result = await upgradeDatabase({ dbPath: copy, prisma: old, log: console.log });
+            if (result.applied.length !== UPGRADES.length) { console.error('upgrade did not apply everything', result); process.exit(1); }
+            await old.productUnit.findMany();
+            await old.userPermission.findMany();
+            console.log('upgrade of an older database: ok (' + result.applied.join(', ') + ')');
+            await old.$disconnect();
+          })().catch((e) => { console.error(e); process.exit(1); });
+          '@ | Set-Content -Path bundle-smoke.js
+          & "bundle/node.exe" bundle-smoke.js
+          if ($LASTEXITCODE -ne 0) { throw "Bundle smoke test failed" }
 
       - name: Attach server bundle to the release
         uses: softprops/action-gh-release@v2

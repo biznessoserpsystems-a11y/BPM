@@ -25,7 +25,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const productId = Number(id);
     const product = Number.isInteger(productId)
-      ? await db.product.findFirst({ where: { id: productId, companyId: auth.companyId }, select: { id: true, name: true } })
+      ? await db.product.findFirst({ where: { id: productId, companyId: auth.companyId }, select: { id: true, brandName: true } })
       : null;
     if (!product) throw new PharmacyServiceError('Product not found');
 
@@ -41,7 +41,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         action: 'UPDATE_PRODUCT_UNITS',
         entityName: 'Product',
         entityId: String(product.id),
-        details: { product: product.name, before, after: setup },
+        details: { product: product.brandName, before, after: setup },
       });
     });
 

@@ -7,6 +7,7 @@ import { canAccessBranch, getCompanyBranchIds } from '@/lib/branch-access';
 import { assertPeriodOpenForDate } from '@/lib/accounting-period';
 import type { CreateJournalEntryInput } from '@/types/pharmacy';
 import { generateEntryNumber } from '@/lib/journal-entry-number';
+import { firstInventoryLineMissingProduct, inventoryAccountIds, parseEntryDate } from '@/lib/journal-rules';
 
 // Direct journal entry posting bypasses the PO/Transfer style request flow
 // entirely, so it's gated the same way as the other manual accounting
@@ -114,10 +115,33 @@ export async function POST(request: NextRequest) {
     const accountIds = [...new Set(body.lines.map((l) => l.accountId))];
     const ownedAccounts = await db.account.findMany({
       where: { id: { in: accountIds }, companyId: auth.companyId },
-      select: { id: true },
+      select: { id: true, accountCode: true, accountName: true, accountSubType: true },
     });
     if (ownedAccounts.length !== accountIds.length) {
       throw new PharmacyServiceError('One or more accounts on this entry do not belong to your company');
+    }
+
+    // A line on an INVENTORY account must say which product it is for — the
+    // stock ledger is kept product by product, so "Inventory: 500" with no
+    // product is not accepted. Every product named must be this company's.
+    const mappings = await db.gLAccountMapping.findMany({
+      where: { companyId: auth.companyId, mappingKey: 'INVENTORY_ASSET' },
+      select: { mappingKey: true, accountId: true },
+    });
+    const inventoryIds = inventoryAccountIds(mappings, ownedAccounts);
+    const missing = firstInventoryLineMissingProduct(body.lines, inventoryIds);
+    if (missing !== null) {
+      const acct = ownedAccounts.find((a) => a.id === body.lines[missing].accountId);
+      throw new PharmacyServiceError(
+        `Line ${missing + 1} is on the inventory account ${acct?.accountCode} — ${acct?.accountName}: choose which product it is for`
+      );
+    }
+    const productIds = [...new Set(body.lines.map((l) => l.productId).filter((id): id is number => typeof id === 'number'))];
+    if (productIds.length > 0) {
+      const ownedProducts = await db.product.count({ where: { id: { in: productIds }, companyId: auth.companyId } });
+      if (ownedProducts !== productIds.length) {
+        throw new PharmacyServiceError('One or more products on this entry do not belong to your company');
+      }
     }
 
     let currencyId = body.currencyId;
@@ -130,7 +154,12 @@ export async function POST(request: NextRequest) {
     }
 
     const entryNumber = await generateEntryNumber();
-    const entryDate = new Date(body.entryDate);
+    let entryDate: Date;
+    try {
+      entryDate = parseEntryDate(body.entryDate);
+    } catch (e) {
+      throw new PharmacyServiceError((e as Error).message);
+    }
 
     const entry = await db.$transaction(async (tx) => {
       await assertPeriodOpenForDate(tx, entryDate);

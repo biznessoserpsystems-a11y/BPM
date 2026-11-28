@@ -54,6 +54,13 @@ export const INVENTORY_PERMISSIONS = [
       'The same corrections on a sale from an earlier day, for any cashier. Needs an open accounting period. Admin only until an Admin grants it.',
     defaultRoles: ['ADMIN'],
   },
+  {
+    key: 'sales.add_past',
+    label: 'Add omitted sales to a previous date',
+    description:
+      'Record a sale that was left out, dated to the day it actually happened. It is posted to the books on that date (the accounting period must be open), and a reason is required and recorded. Admin only until an Admin grants it.',
+    defaultRoles: ['ADMIN'],
+  },
 ] as const;
 
 export type InventoryPermissionKey = (typeof INVENTORY_PERMISSIONS)[number]['key'];

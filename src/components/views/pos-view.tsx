@@ -30,6 +30,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { EditSaleDialog, type EditableSale } from '@/components/views/edit-sale-dialog';
 import { useInventoryPermissions } from '@/hooks/use-inventory-permissions';
+import { toLocalISODate } from '@/lib/week-range';
 import {
   Search,
   Plus,
@@ -96,6 +97,12 @@ export function PosView() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
+  const { canAddPastSale } = useInventoryPermissions();
+  const todayISO = toLocalISODate(new Date());
+  // Adding back a sale that was left out: dated to the day it really happened.
+  const [saleDate, setSaleDate] = useState('');
+  const [backdateReason, setBackdateReason] = useState('');
+  const isBackdated = !!saleDate && saleDate < todayISO;
   const [showReceipt, setShowReceipt] = useState(false);
   const [saleResult, setSaleResult] = useState<Record<string, unknown> | null>(null);
   const [receiptItems, setReceiptItems] = useState<PosCartItem[]>([]);
@@ -127,7 +134,11 @@ export function PosView() {
       clearCart();
       setCustomerName('');
       setCustomerPhone('');
+      setSaleDate('');
+      setBackdateReason('');
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['sales-history'] });
+      queryClient.invalidateQueries({ queryKey: ['weekly-sales'] });
       queryClient.invalidateQueries({ queryKey: ['fefo-batches'] });
       queryClient.invalidateQueries({ queryKey: ['inventory-batches'] });
     },
@@ -166,9 +177,14 @@ export function PosView() {
       toast.error('Your session looks invalid — please log in again');
       return;
     }
+    if (isBackdated && backdateReason.trim().length < 3) {
+      toast.error('Give a reason for adding this sale to a previous date');
+      return;
+    }
     completeSaleMutation.mutate({
       branchId: selectedBranchId,
       userId: user.id,
+      ...(isBackdated ? { saleDate, reason: backdateReason.trim() } : {}),
       customerName: customerName || undefined,
       customerPhone: customerPhone || undefined,
       paymentMethod,
@@ -403,6 +419,20 @@ export function PosView() {
               onChange={(e) => setCustomerPhone(e.target.value)}
               className="h-9"
             />
+            {canAddPastSale && (
+              <div className="rounded-lg border border-dashed p-2 space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground block">Sale date (leave as today for a normal sale)</label>
+                <Input type="date" className="h-9" max={todayISO} value={saleDate || todayISO} onChange={(e) => setSaleDate(e.target.value === todayISO ? '' : e.target.value)} />
+                {isBackdated && (
+                  <>
+                    <p className="text-[11px] text-amber-700">
+                      Adding a sale that was left out: it is recorded on {saleDate} and posted to the books on that date. Stock is taken off now.
+                    </p>
+                    <Textarea rows={2} placeholder="Reason (required) — e.g. sale was not entered on the day" value={backdateReason} onChange={(e) => setBackdateReason(e.target.value)} />
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <Separator />

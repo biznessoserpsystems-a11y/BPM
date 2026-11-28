@@ -8,6 +8,8 @@ import { assertPeriodOpenForDate } from '@/lib/accounting-period';
 import type { CreateSaleInput } from '@/types/pharmacy';
 import { getAuthPayload, isAuthError } from '@/lib/auth';
 import { generateEntryNumber } from '@/lib/journal-entry-number';
+import { loadOverrides, resolvePermission } from '@/lib/inventory-permissions';
+import { resolveSaleDate } from '@/lib/sale-date';
 
 // Insurance sales are a claim on the insurer, not cash in hand yet — post
 // to Accounts Receivable. Everything else (cash, card, mobile money) is
@@ -68,6 +70,25 @@ export async function POST(request: NextRequest) {
       throw new PharmacyServiceError("You do not have access to this branch's data");
     }
 
+    // Adding back a sale that was left out: dated to an earlier day. Needs its
+    // own permission (Admin by default, grantable) and a recorded reason.
+    let saleWhen: { date: Date; isPast: boolean };
+    try {
+      saleWhen = resolveSaleDate(body.saleDate);
+    } catch (e) {
+      throw new PharmacyServiceError((e as Error).message);
+    }
+    const backdateReason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (saleWhen.isPast) {
+      const overrides = await loadOverrides(db, auth.userId);
+      if (!resolvePermission('sales.add_past', auth.roleName, overrides.get('sales.add_past'))) {
+        throw new PharmacyServiceError('You don\u2019t have permission to add sales to a previous date. Ask an administrator to grant it.');
+      }
+      if (backdateReason.length < 3) {
+        throw new PharmacyServiceError('Give a reason for adding this sale to a previous date (at least 3 characters)');
+      }
+    }
+
     // Validate all batches have enough stock, and capture each batch's cost
     // (purchasePrice) up front — needed below to post COGS at cost, not at
     // the selling price the customer was actually charged.
@@ -123,6 +144,7 @@ export async function POST(request: NextRequest) {
           taxAmount,
           totalAmount,
           paymentMethod: body.paymentMethod,
+          saleDate: saleWhen.date,
         },
       });
 
@@ -187,7 +209,7 @@ export async function POST(request: NextRequest) {
       // never be blocked by bookkeeping configuration.
       let journalEntryId: string | undefined;
       try {
-        const saleDate = new Date();
+        const saleDate = saleWhen.date;
         const paymentKey = paymentMappingKey(body.paymentMethod);
         const [paymentMapping, revenueMapping, taxMapping, cogsMapping, inventoryMapping, baseCurrency] =
           await Promise.all([
@@ -245,7 +267,11 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (glError) {
-        // Don't let a GL posting hiccup block the sale itself.
+        // A sale added to a PREVIOUS date must land in the books on that date.
+        // If that period is closed, refuse the whole sale rather than record
+        // it with nothing posted (the stock would move but the books wouldn't).
+        if (saleWhen.isPast && glError instanceof PharmacyServiceError) throw glError;
+        // Don't let a GL posting hiccup block an ordinary sale.
         console.error('[Sale] GL posting skipped:', glError);
       }
 
@@ -262,6 +288,7 @@ export async function POST(request: NextRequest) {
           paymentMethod: body.paymentMethod,
           itemCount: body.items.length,
           journalEntryPosted: !!journalEntryId,
+          ...(saleWhen.isPast ? { addedToPreviousDate: saleWhen.date, enteredAt: new Date(), reason: backdateReason } : {}),
         },
       });
 

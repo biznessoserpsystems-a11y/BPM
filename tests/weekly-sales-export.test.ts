@@ -15,8 +15,8 @@ function reportWith(over: Partial<WeeklySalesReport> = {}): WeeklySalesReport {
     branchId: null,
     summary: { invoiceCount: 2, itemsSold: 6, grossSales: 37, discounts: 2, tax: 1.1, totalSales: 36.1, returnsTotal: 0, netSales: 36.1 },
     days: [
-      { date: '2026-11-16', label: 'Mon', invoiceCount: 0, total: 0 },
-      { date: '2026-11-18', label: 'Wed', invoiceCount: 1, total: 21.1 },
+      { date: '2026-11-16', label: 'Mon', invoiceCount: 0, itemsSold: 0, discounts: 0, tax: 0, total: 0, returns: 0, net: 0 },
+      { date: '2026-11-18', label: 'Wed', invoiceCount: 1, itemsSold: 3, discounts: 2, tax: 1.1, total: 21.1, returns: 0, net: 21.1 },
     ],
     invoices: [
       {
@@ -114,7 +114,7 @@ describe('PDF sections', () => {
 
   it('shows returns and net sales only when there were returns', () => {
     const without = weeklySalesToPdfSections(reportWith(), money);
-    expect(without.map((s) => s.heading)).toEqual(['Summary', 'By day', 'Sales']);
+    expect(without.map((s) => s.heading)).toEqual(['Summary', 'Daily sales summary', 'Sales']);
     expect(without[0].rows.some((r) => r[0] === 'Net sales')).toBe(false);
 
     const withReturns = weeklySalesToPdfSections(

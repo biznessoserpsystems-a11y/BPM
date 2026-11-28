@@ -11,7 +11,7 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useBranches } from '@/hooks/use-branches';
 import { useCompany } from '@/hooks/use-company';
 import { exportReportToPdf } from '@/lib/pdf-export';
-import { shiftWeek, toLocalISODate, weekRangeFor } from '@/lib/week-range';
+import { dayRangeFor, shiftDay, shiftWeek, toLocalISODate, weekRangeFor } from '@/lib/week-range';
 import {
   weeklySalesFileName,
   weeklySalesToCsv,
@@ -38,6 +38,16 @@ const prettyDay = (yyyyMmDd: string) => format(new Date(`${yyyyMmDd}T00:00:00`),
  * breakdown and any returns. Exports to PDF and to CSV for spreadsheets.
  */
 export function WeeklySalesSection() {
+  return <SalesReportSection mode="week" />;
+}
+
+/** Reports → Daily Sales: the same report for a single day. */
+export function DailySalesSection() {
+  return <SalesReportSection mode="day" />;
+}
+
+function SalesReportSection({ mode }: { mode: 'week' | 'day' }) {
+  const isDay = mode === 'day';
   const { user } = usePharmacyStore();
   const baseCurrency = useBaseCurrency();
   const { data: company } = useCompany();
@@ -48,19 +58,22 @@ export function WeeklySalesSection() {
   const [date, setDate] = useState(() => toLocalISODate(new Date()));
   const [branch, setBranch] = useState(ALL_BRANCHES);
 
-  const week = weekRangeFor(date);
-  const currentWeekStart = weekRangeFor(null).weekStart;
+  const week = isDay ? dayRangeFor(date) : weekRangeFor(date);
+  const currentWeekStart = (isDay ? dayRangeFor(null) : weekRangeFor(null)).weekStart;
+  const shift = (n: number) => (isDay ? shiftDay(week.weekStart, n) : shiftWeek(week.weekStart, n));
   const isCurrentOrFuture = week.weekStart >= currentWeekStart;
 
   const branchParam = canChooseBranch && branch !== ALL_BRANCHES ? `&branchId=${encodeURIComponent(branch)}` : '';
   const { data: report, isLoading, isError, error } = useQuery<WeeklySalesReport>({
-    queryKey: ['weekly-sales', week.weekStart, canChooseBranch ? branch : 'own'],
-    queryFn: () => fetchJson<WeeklySalesReport>(`/api/v1/reports/weekly-sales?date=${week.weekStart}${branchParam}`),
+    queryKey: ['weekly-sales', mode, week.weekStart, canChooseBranch ? branch : 'own'],
+    queryFn: () => fetchJson<WeeklySalesReport>(`/api/v1/reports/weekly-sales?date=${week.weekStart}${isDay ? '&period=day' : ''}${branchParam}`),
   });
 
   const money = (n: number) => formatMoney(n, baseCurrency);
   const branchName = branch === ALL_BRANCHES ? 'All branches' : branches.find((b) => b.id === branch)?.label ?? branch;
-  const weekLabel = `${prettyDay(week.weekStart)} – ${prettyDay(week.weekEnd)} ${week.weekEnd.slice(0, 4)}`;
+  const weekLabel = isDay
+    ? `${prettyDay(week.weekStart)} ${week.weekStart.slice(0, 4)}`
+    : `${prettyDay(week.weekStart)} – ${prettyDay(week.weekEnd)} ${week.weekEnd.slice(0, 4)}`;
 
   const downloadCsv = () => {
     if (!report) return;
@@ -75,7 +88,7 @@ export function WeeklySalesSection() {
   const downloadPdf = () => {
     if (!report) return;
     exportReportToPdf({
-      title: 'Weekly Sales Report',
+      title: isDay ? 'Daily Sales Report' : 'Weekly Sales Report',
       subtitle: `${weekLabel}${canChooseBranch ? ` · ${branchName}` : ''}`,
       companyName: company?.name,
       sections: weeklySalesToPdfSections(report, money),
@@ -89,29 +102,29 @@ export function WeeklySalesSection() {
       <Card>
         <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-orange-600" /> Weekly Sales
+            <CalendarDays className="h-4 w-4 text-orange-600" /> {isDay ? 'Daily Sales' : 'Weekly Sales'}
           </CardTitle>
           <div className="flex items-end gap-2 flex-wrap">
             <div className="flex items-end gap-1">
-              <Button size="icon" variant="outline" className="h-8 w-8" aria-label="Previous week" onClick={() => setDate(shiftWeek(week.weekStart, -1))}>
+              <Button size="icon" variant="outline" className="h-8 w-8" aria-label={isDay ? 'Previous day' : 'Previous week'} onClick={() => setDate(shift(-1))}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div>
-                <Label className="text-xs">Week containing</Label>
+                <Label className="text-xs">{isDay ? 'Day' : 'Week containing'}</Label>
                 <Input type="date" className="h-8 text-xs" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
               </div>
               <Button
                 size="icon"
                 variant="outline"
                 className="h-8 w-8"
-                aria-label="Next week"
+                aria-label={isDay ? 'Next day' : 'Next week'}
                 disabled={isCurrentOrFuture}
-                onClick={() => setDate(shiftWeek(week.weekStart, 1))}
+                onClick={() => setDate(shift(1))}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <Button size="sm" variant="outline" className="h-8 text-xs" disabled={week.weekStart === currentWeekStart} onClick={() => setDate(toLocalISODate(new Date()))}>
-                This week
+                {isDay ? 'Today' : 'This week'}
               </Button>
             </div>
 
@@ -170,27 +183,54 @@ export function WeeklySalesSection() {
             )}
           </div>
 
-          <Card>
-            <CardContent className="p-3">
-              <div className="grid grid-cols-7 gap-2">
-                {report.days.map((d) => (
-                  <div key={d.date} className={cn('rounded-md border p-2 text-center', d.invoiceCount === 0 && 'bg-muted/40 text-muted-foreground')}>
-                    <div className="text-[11px] font-medium uppercase tracking-wide">{d.label}</div>
-                    <div className="text-[11px] text-muted-foreground">{d.date.slice(8)}</div>
-                    <div className="text-xs font-semibold mt-1 truncate">{money(d.total)}</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {d.invoiceCount} {d.invoiceCount === 1 ? 'invoice' : 'invoices'}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {!isDay && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Daily sales summary</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Day</TableHead>
+                      <TableHead className="text-right">Invoices</TableHead>
+                      <TableHead className="text-right">Items</TableHead>
+                      <TableHead className="text-right">Total sales</TableHead>
+                      <TableHead className="text-right">Returns</TableHead>
+                      <TableHead className="text-right">Net sales</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {report.days.map((d) => (
+                      <TableRow key={d.date} className={cn(d.invoiceCount === 0 && d.returns === 0 && 'text-muted-foreground')}>
+                        <TableCell className="text-sm">
+                          <span className="font-medium">{d.label}</span> <span className="text-xs text-muted-foreground">{prettyDay(d.date).slice(4)}</span>
+                        </TableCell>
+                        <TableCell className="text-sm text-right">{d.invoiceCount}</TableCell>
+                        <TableCell className="text-sm text-right">{d.itemsSold}</TableCell>
+                        <TableCell className="text-sm text-right">{money(d.total)}</TableCell>
+                        <TableCell className="text-sm text-right text-rose-700">{d.returns > 0 ? `−${money(d.returns)}` : '—'}</TableCell>
+                        <TableCell className="text-sm text-right font-medium">{money(d.net)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="border-t-2 bg-muted/50">
+                      <TableCell className="text-sm font-semibold">Week</TableCell>
+                      <TableCell className="text-sm text-right font-semibold">{s.invoiceCount}</TableCell>
+                      <TableCell className="text-sm text-right font-semibold">{s.itemsSold}</TableCell>
+                      <TableCell className="text-sm text-right font-semibold">{money(s.totalSales)}</TableCell>
+                      <TableCell className="text-sm text-right font-semibold">{s.returnsTotal > 0 ? `−${money(s.returnsTotal)}` : '—'}</TableCell>
+                      <TableCell className="text-sm text-right font-bold">{money(s.netSales)}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardContent className="p-0">
               {report.invoices.length === 0 ? (
-                <p className="p-6 text-sm text-muted-foreground">No sales were recorded this week.</p>
+                <p className="p-6 text-sm text-muted-foreground">{isDay ? 'No sales were recorded on this day.' : 'No sales were recorded this week.'}</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -243,7 +283,7 @@ export function WeeklySalesSection() {
                     ))}
                     <TableRow className="border-t-2 bg-muted/50">
                       <TableCell colSpan={4} className="text-sm text-right font-semibold">
-                        Week total
+                        {isDay ? 'Day total' : 'Week total'}
                       </TableCell>
                       <TableCell className="text-sm text-right font-bold">{money(s.totalSales)}</TableCell>
                     </TableRow>
@@ -256,7 +296,7 @@ export function WeeklySalesSection() {
           {report.returns.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Returns made this week</CardTitle>
+                <CardTitle className="text-sm">{isDay ? 'Returns made today' : 'Returns made this week'}</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>

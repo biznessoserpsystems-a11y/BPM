@@ -23,13 +23,19 @@ describe('editing a sale', () => {
     otherCashier = await createTestUserWithRole(ctx, 'EMPLOYEE', 'saleedit-b');
     productId = (await createTestProduct(ctx, { brandName: 'Paracetamol 500mg' })).id;
 
-    currencyId = (await db.currency.create({ data: { companyId: ctx.companyId, code: 'GHS', name: 'Cedi', symbol: 'GH₵', isBaseCurrency: true } })).id;
+    // createTestContext already seeds a starter chart of accounts, a base currency and the GL mappings.
+    currencyId = (await db.currency.findFirstOrThrow({ where: { companyId: ctx.companyId, isBaseCurrency: true } })).id;
     accounts = {};
     const defs: [string, string, string, string][] = [
       ['CASH', 'ASSET', 'DEBIT', '1000'], ['SALES_REVENUE', 'REVENUE', 'CREDIT', '4000'], ['TAX_PAYABLE', 'LIABILITY', 'CREDIT', '2100'],
       ['COGS', 'EXPENSE', 'DEBIT', '5000'], ['INVENTORY_ASSET', 'ASSET', 'DEBIT', '1200'],
     ];
     for (const [key, type, normal, code] of defs) {
+      const existing = await db.gLAccountMapping.findUnique({ where: { companyId_mappingKey: { companyId: ctx.companyId, mappingKey: key } } });
+      if (existing) {
+        accounts[key] = existing.accountId;
+        continue;
+      }
       const acct = await db.account.create({ data: { companyId: ctx.companyId, accountCode: `${code}-${ctx.suffix}`, accountName: key, accountType: type, normalBalance: normal } });
       accounts[key] = acct.id;
       await db.gLAccountMapping.create({ data: { companyId: ctx.companyId, mappingKey: key, accountId: acct.id } });

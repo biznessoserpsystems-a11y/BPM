@@ -100,7 +100,7 @@ function fakeClient() {
       },
     },
   };
-  return client as typeof client & never;
+  return client;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asClient = (c: unknown) => c as any;

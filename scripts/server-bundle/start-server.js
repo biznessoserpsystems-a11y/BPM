@@ -8,6 +8,9 @@
 //     JWT_SECRET/FIELD_ENCRYPTION_KEY (these must stay stable across
 //     restarts — regenerating them would invalidate sessions and break
 //     decryption of already-encrypted payroll data).
+//   - Every start: bring an existing database up to date with this release
+//     (ensure-schema.js) — adds any new tables after taking a backup, so a
+//     pharmacy upgrading in place doesn't hit "no such table".
 //   - Print the LAN address so the operator knows what to type into each
 //     desktop client's "Change Server" screen.
 //   - Spawn the actual Next.js standalone server, bound to 0.0.0.0 so
@@ -119,21 +122,44 @@ console.log('Leave this window open while staff are using the system.');
 console.log('Closing it will shut the server down for everyone connected.');
 console.log('');
 
-const child = spawn(process.execPath, [path.join(APP_DIR, 'server.js')], {
-  cwd: APP_DIR,
-  env: {
-    ...process.env,
-    NODE_ENV: 'production',
-    PORT: String(config.port),
-    HOSTNAME: '0.0.0.0',
-    DATABASE_URL: `file:${DB_PATH}`,
-    JWT_SECRET: config.jwtSecret,
-    FIELD_ENCRYPTION_KEY: config.fieldEncryptionKey,
-    LICENSE_ADMIN_SECRET: config.licenseAdminSecret,
-  },
-  stdio: 'inherit',
-});
+async function upgradeThenStart() {
+  // Upgrade BEFORE the server (and its database engine) opens the file.
+  try {
+    const { PrismaClient } = require(path.join(APP_DIR, 'node_modules', '@prisma', 'client'));
+    process.env.DATABASE_URL = `file:${DB_PATH}`;
+    const prisma = new PrismaClient();
+    try {
+      await require('./ensure-schema').upgradeDatabase({ dbPath: DB_PATH, prisma });
+    } finally {
+      await prisma.$disconnect();
+    }
+  } catch (err) {
+    console.error('');
+    console.error('Could not bring the database up to date, so the server was NOT started.');
+    console.error('Your data has not been changed.');
+    console.error('Reason: ' + (err && err.message ? err.message : err));
+    console.error('');
+    process.exit(1);
+  }
 
-child.on('exit', (code) => process.exit(code ?? 0));
-process.on('SIGINT', () => child.kill());
-process.on('SIGTERM', () => child.kill());
+  const child = spawn(process.execPath, [path.join(APP_DIR, 'server.js')], {
+    cwd: APP_DIR,
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      PORT: String(config.port),
+      HOSTNAME: '0.0.0.0',
+      DATABASE_URL: `file:${DB_PATH}`,
+      JWT_SECRET: config.jwtSecret,
+      FIELD_ENCRYPTION_KEY: config.fieldEncryptionKey,
+      LICENSE_ADMIN_SECRET: config.licenseAdminSecret,
+    },
+    stdio: 'inherit',
+  });
+
+  child.on('exit', (code) => process.exit(code ?? 0));
+  process.on('SIGINT', () => child.kill());
+  process.on('SIGTERM', () => child.kill());
+}
+
+upgradeThenStart();

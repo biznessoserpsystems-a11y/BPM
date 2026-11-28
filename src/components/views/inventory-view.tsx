@@ -42,6 +42,10 @@ import { cn } from '@/lib/utils';
 import { formatMoney } from '@/lib/currency';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { fetchJson } from '@/lib/fetch-json';
+import { ReceiveUnitPicker } from '@/components/views/receive-unit-picker';
+import { AdjustStockDialog, EditBatchDialog } from '@/components/views/batch-actions';
+import { useInventoryPermissions } from '@/hooks/use-inventory-permissions';
+import { deriveReceiveUnit, EMPTY_UNIT_FORM, type UnitFormState, type UnitSetup } from '@/lib/receive-units';
 import { ErrorBanner, errorMessage } from '@/components/ui/error-banner';
 
 interface Batch {
@@ -53,6 +57,7 @@ interface Batch {
   purchasePrice: number;
   sellingPrice: number;
   expiryDate: string;
+  supplierId?: number | null;
   product?: { brandName: string; genericName: string; skuCode: string };
   supplier?: { name: string };
 }
@@ -94,6 +99,15 @@ export function InventoryView() {
   const canEditInventory = canEdit('inventory');
   const queryClient = useQueryClient();
   const baseCurrency = useBaseCurrency();
+  // What this person may do to received stock — decided by the server (role
+  // default + anything an Admin granted or took away). The buttons below only
+  // show when it'd work; the API enforces it again regardless.
+  const { canEditBatch, canEditExpiry, canAdjust } = useInventoryPermissions();
+  const showEditAction = canEditInventory && (canEditBatch || canEditExpiry);
+  const showAdjustAction = canEditInventory && canAdjust;
+  const showBatchActions = showEditAction || showAdjustAction;
+  const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
+  const [adjustingBatch, setAdjustingBatch] = useState<Batch | null>(null);
   const batchNumberRef = useRef<HTMLInputElement>(null);
   const expiryDateRef = useRef<HTMLInputElement>(null);
   // Lazy initializer so consumePendingTab() (which clears the pending tab
@@ -118,6 +132,16 @@ export function InventoryView() {
     sellingPrice: '',
     quantity: '',
   });
+  // Which unit the quantity is being entered in (the product's own, a
+  // packaging unit like "box", or one being set up right here).
+  const [unitForm, setUnitForm] = useState<UnitFormState>(EMPTY_UNIT_FORM);
+  const receiveProductId = receiveForm.productId ? Number(receiveForm.productId) : null;
+  const { data: unitSetup, isLoading: unitSetupLoading } = useQuery<UnitSetup>({
+    queryKey: ['product-units', receiveProductId],
+    queryFn: () => fetchJson<UnitSetup>(`/api/v1/product-units?productId=${receiveProductId}`),
+    enabled: receiveOpen && receiveProductId !== null,
+  });
+  const unit = deriveReceiveUnit(unitSetup, unitForm);
 
   const { data: batches = [], isLoading: batchesLoading, isError: batchesError, error: batchesErrorObj } = useQuery<Batch[]>({
     queryKey: ['inventory-batches', selectedBranchId],
@@ -158,13 +182,24 @@ export function InventoryView() {
 
   const receiveMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      fetchJson('/api/v1/inventory/batches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      toast.success('Goods received successfully!');
+      fetchJson<{ received?: { quantity: number; unit: string; unitsPer: number; baseQuantity: number; baseUnit: string } }>(
+        '/api/v1/inventory/batches',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      ),
+    onSuccess: (data) => {
+      const r = data.received;
+      toast.success(
+        r && r.unitsPer !== 1
+          ? `Received ${r.quantity} ${r.unit} = ${r.baseQuantity} ${r.baseUnit} added to stock`
+          : 'Goods received successfully!'
+      );
+      setUnitForm(EMPTY_UNIT_FORM);
+      queryClient.invalidateQueries({ queryKey: ['product-units'] });
+      queryClient.invalidateQueries({ queryKey: ['product-units-all'] });
       setReceiveOpen(false);
       setReceiveForm({
         productId: '',
@@ -186,6 +221,10 @@ export function InventoryView() {
       toast.error('Please fill in all required fields');
       return;
     }
+    if (unit.problem) {
+      toast.error(unit.problem);
+      return;
+    }
     if (!user?.id) {
       toast.error('Your session looks invalid — please log in again');
       return;
@@ -200,6 +239,9 @@ export function InventoryView() {
       sellingPrice: Number(receiveForm.sellingPrice) || 0,
       quantityReceived: Number(receiveForm.quantity),
       receivedByUserId: user.id,
+      // Entered in a packaging unit? The server converts to the base unit.
+      receivingUnit: unit.isConverted ? unit.unitName : undefined,
+      defineUnit: unit.define ?? undefined,
     });
   };
 
@@ -240,7 +282,10 @@ export function InventoryView() {
                 <Label className="text-xs">Product *</Label>
                 <Select
                   value={receiveForm.productId}
-                  onValueChange={(v) => setReceiveForm((f) => ({ ...f, productId: v }))}
+                  onValueChange={(v) => {
+                    setReceiveForm((f) => ({ ...f, productId: v }));
+                    setUnitForm(EMPTY_UNIT_FORM);
+                  }}
                 >
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Select product" />
@@ -310,7 +355,10 @@ export function InventoryView() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <Label className="text-xs">Purchase Price</Label>
+                  <Label className="text-xs">
+                    Purchase Price{' '}
+                    <span className="font-normal text-muted-foreground">/ {unit.unitName}</span>
+                  </Label>
                   <Input
                     type="number"
                     className="h-9"
@@ -320,7 +368,10 @@ export function InventoryView() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Selling Price</Label>
+                  <Label className="text-xs">
+                    Selling Price{' '}
+                    <span className="font-normal text-muted-foreground">/ {unit.baseUnit}</span>
+                  </Label>
                   <Input
                     type="number"
                     className="h-9"
@@ -330,9 +381,13 @@ export function InventoryView() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Quantity *</Label>
+                  <Label className="text-xs">
+                    Quantity * <span className="font-normal text-muted-foreground">({unit.unitName})</span>
+                  </Label>
                   <Input
                     type="number"
+                    min={1}
+                    step={1}
                     className="h-9"
                     placeholder="0"
                     value={receiveForm.quantity}
@@ -340,6 +395,16 @@ export function InventoryView() {
                   />
                 </div>
               </div>
+              <ReceiveUnitPicker
+                productSelected={receiveProductId !== null}
+                setup={unitSetup}
+                loading={unitSetupLoading}
+                state={unitForm}
+                derived={unit}
+                quantity={receiveForm.quantity}
+                purchasePrice={receiveForm.purchasePrice}
+                onChange={setUnitForm}
+              />
               <Button
                 className="w-full bg-brand-600 hover:bg-brand-700"
                 onClick={handleReceive}
@@ -354,6 +419,19 @@ export function InventoryView() {
       </div>
 
       {/* Batches Tab */}
+      {editingBatch && (
+        <EditBatchDialog
+          batch={editingBatch}
+          suppliers={suppliers}
+          canEditDetails={canEditBatch}
+          canEditExpiry={canEditExpiry}
+          onClose={() => setEditingBatch(null)}
+        />
+      )}
+      {adjustingBatch && (
+        <AdjustStockDialog batch={adjustingBatch} baseCurrency={baseCurrency} onClose={() => setAdjustingBatch(null)} />
+      )}
+
       <TabsContent value="batches">
         <Card>
           <CardContent className="p-0">
@@ -385,6 +463,7 @@ export function InventoryView() {
                       <TableHead>Selling</TableHead>
                       <TableHead>Expiry</TableHead>
                       <TableHead>Supplier</TableHead>
+                      {showBatchActions && <TableHead className="w-44" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -423,6 +502,22 @@ export function InventoryView() {
                           <TableCell className="text-sm text-muted-foreground">
                             {batch.supplier?.name || '-'}
                           </TableCell>
+                          {showBatchActions && (
+                            <TableCell>
+                              <div className="flex gap-1.5">
+                                {showEditAction && (
+                                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingBatch(batch)}>
+                                    Edit
+                                  </Button>
+                                )}
+                                {showAdjustAction && (
+                                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAdjustingBatch(batch)}>
+                                    Adjust stock
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}

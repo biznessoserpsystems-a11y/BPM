@@ -8,11 +8,14 @@ import type { CreateStockAdjustmentInput } from '@/types/pharmacy';
 import { getAuthPayload, isAuthError } from '@/lib/auth';
 import { canAccessBranch } from '@/lib/branch-access';
 import { generateEntryNumber } from '@/lib/journal-entry-number';
+import { requireInventoryPermission } from '@/lib/inventory-permissions';
 
 // Stock adjustments mutate inventory immediately with no separate
 // request/approve step (unlike POs and Transfers), so unlike those flows
-// the gate has to live here rather than in an approval tier.
-const CAN_ADJUST_STOCK = ['ADMIN', 'MANAGER', 'EMPLOYEE'];
+// the gate has to live here rather than in an approval tier. Who may do it
+// is the 'inventory.adjust' permission (inventory-permissions.ts): Admin,
+// Manager and Employee by default — exactly who could before — and an Admin
+// can grant it to anyone else or take it away from a specific person.
 
 export async function GET(request: NextRequest) {
   try {
@@ -49,11 +52,8 @@ export async function POST(request: NextRequest) {
     const auth = getAuthPayload(request);
     if (isAuthError(auth)) return auth;
 
-    if (!CAN_ADJUST_STOCK.includes(auth.roleName)) {
-      throw new PharmacyServiceError(
-        `Only ${CAN_ADJUST_STOCK.join(' or ')} may record stock adjustments (your role: ${auth.roleName})`
-      );
-    }
+    const denied = await requireInventoryPermission(db, auth, 'inventory.adjust');
+    if (denied) return denied;
 
     const body: CreateStockAdjustmentInput = await request.json();
 
@@ -67,6 +67,25 @@ export async function POST(request: NextRequest) {
     }
     if (body.userId !== auth.userId) {
       throw new PharmacyServiceError('You can only record a stock adjustment as yourself');
+    }
+    if (!Number.isInteger(body.quantityChanged) || body.quantityChanged === 0) {
+      throw new PharmacyServiceError('Quantity changed must be a whole number, not zero (use a minus sign to remove stock)');
+    }
+
+    // The batch must be the one it claims to be: this company's, at this
+    // branch, for this product. (Previously only the branch was checked, so
+    // another company's batch id could be adjusted.)
+    const target = await db.productBatch.findFirst({
+      where: { id: body.batchId, branchId: body.branchId, productId: body.productId, product: { companyId: auth.companyId } },
+      select: { quantityInStock: true },
+    });
+    if (!target) {
+      throw new PharmacyServiceError('Batch not found at this branch');
+    }
+    // Refuse to remove more than is there, instead of silently flooring at
+    // zero while still posting the full requested amount as a write-down.
+    if (body.quantityChanged < 0 && -body.quantityChanged > target.quantityInStock) {
+      throw new PharmacyServiceError(`Only ${target.quantityInStock} in stock — you can't remove ${-body.quantityChanged}`);
     }
 
     const adjustment = await db.$transaction(async (tx) => {

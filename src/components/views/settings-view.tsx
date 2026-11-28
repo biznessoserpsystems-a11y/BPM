@@ -35,7 +35,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { UserCog, Link2, ShieldCheck, Plus, KeyRound, AlertTriangle, GitBranch, DatabaseBackup, Download, Upload, AlertOctagon, Building2, Pencil, LayoutGrid, Image } from 'lucide-react';
+import { UserCog, Link2, ShieldCheck, Plus, KeyRound, AlertTriangle, GitBranch, DatabaseBackup, Download, Upload, AlertOctagon, Building2, Pencil, LayoutGrid, Image, Ruler } from 'lucide-react';
+import { UnitsOfMeasureSection } from '@/components/views/units-of-measure-settings';
+import { InventoryPermissionsSection } from '@/components/views/inventory-permissions-settings';
 import { toast } from 'sonner';
 import { usePharmacyStore, authFetch } from '@/lib/store';
 import { fetchJson } from '@/lib/fetch-json';
@@ -107,6 +109,7 @@ export function SettingsView() {
         )}
         <TileTabsTrigger value="backup" icon={DatabaseBackup} label="Backup & Restore" color="teal" />
         <TileTabsTrigger value="branches" icon={Building2} label="Branches" color="amber" />
+        <TileTabsTrigger value="units" icon={Ruler} label="Units of Measure" color="slate" />
       </TileTabsList>
 
       <TabsContent value="profile">
@@ -127,6 +130,10 @@ export function SettingsView() {
 
       <TabsContent value="branches">
         <BranchesSection queryClient={queryClient} />
+      </TabsContent>
+
+      <TabsContent value="units">
+        <UnitsOfMeasureSection />
       </TabsContent>
 
       <TabsContent value="approvals">
@@ -884,6 +891,7 @@ function AccessControlSection({ queryClient }: { queryClient: ReturnType<typeof 
       </Card>
 
       <PortalAccessSection />
+      <InventoryPermissionsSection />
     </div>
   );
 }

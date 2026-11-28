@@ -7,6 +7,7 @@ export interface InventoryPermissions {
   'inventory.adjust': boolean;
   'sales.edit_today': boolean;
   'sales.edit_past': boolean;
+  'sales.add_past': boolean;
 }
 
 /**
@@ -32,5 +33,6 @@ export function useInventoryPermissions() {
     canAdjust: p?.['inventory.adjust'] ?? false,
     canEditSaleToday: p?.['sales.edit_today'] ?? false,
     canEditSalePast: p?.['sales.edit_past'] ?? false,
+    canAddPastSale: p?.['sales.add_past'] ?? false,
   };
 }

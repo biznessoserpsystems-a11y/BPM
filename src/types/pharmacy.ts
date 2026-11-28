@@ -17,6 +17,9 @@ export interface CreateSaleInput {
   discountAmount?: number;
   taxAmount?: number;
   paymentMethod: string;
+  /** YYYY-MM-DD of an EARLIER day, to add back a sale that was left out (needs permission and a reason). */
+  saleDate?: string;
+  reason?: string;
   items: SaleItemInput[];
 }
 

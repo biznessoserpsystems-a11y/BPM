@@ -57,6 +57,8 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { usePharmacyStore } from '@/lib/store';
 import { formatMoney } from '@/lib/currency';
+import { inventoryAccountIds } from '@/lib/journal-rules';
+import { toLocalISODate } from '@/lib/week-range';
 import { fetchJson } from '@/lib/fetch-json';
 import { ErrorBanner, errorMessage } from '@/components/ui/error-banner';
 
@@ -99,6 +101,7 @@ interface JournalLine {
   credit: number;
   description?: string;
   account: { accountCode: string; accountName: string };
+  product?: { brandName: string } | null;
 }
 
 interface JournalEntryRow {
@@ -204,6 +207,22 @@ export function AccountingView() {
     queryKey: ['accounts'],
     queryFn: () => fetchJson<Account[]>('/api/v1/accounts'),
   });
+
+  // Inventory lines must name a product, so the journal form needs the product list
+  // (only fetched once the form is opened) and which accounts count as inventory.
+  const [journalOpenForQueries, setJournalOpenForQueries] = useState(false);
+  const { data: allProducts = [] } = useQuery<{ id: number; brandName: string; genericName: string; category: string }[]>({
+    queryKey: ['products-all'],
+    queryFn: () => fetchJson('/api/v1/products'),
+    enabled: journalOpenForQueries,
+  });
+  const { data: glMappings = [] } = useQuery<{ mappingKey: string; accountId: number }[]>({
+    queryKey: ['gl-mappings'],
+    queryFn: () => fetchJson('/api/v1/gl-mappings'),
+    enabled: journalOpenForQueries,
+  });
+  const inventoryIds = inventoryAccountIds(glMappings, accounts);
+  const productCategories = [...new Set(allProducts.map((p) => p.category).filter(Boolean))].sort();
 
   const { data: journalEntries = [], isLoading: journalLoading, isError: journalError, error: journalErrorObj } = useQuery<JournalEntryRow[]>({
     queryKey: ['journal-entries'],
@@ -370,10 +389,10 @@ export function AccountingView() {
   const [journalOpen, setJournalOpen] = useState(false);
   const [journalDesc, setJournalDesc] = useState('');
   const [journalSourceType, setJournalSourceType] = useState('MANUAL');
-  const [lines, setLines] = useState<{ accountId: string; debit: string; credit: string }[]>([
-    { accountId: '', debit: '', credit: '' },
-    { accountId: '', debit: '', credit: '' },
-  ]);
+  const [journalDate, setJournalDate] = useState(() => toLocalISODate(new Date()));
+  type JournalFormLine = { accountId: string; debit: string; credit: string; category: string; productId: string };
+  const blankLine = (): JournalFormLine => ({ accountId: '', debit: '', credit: '', category: '', productId: '' });
+  const [lines, setLines] = useState<JournalFormLine[]>([blankLine(), blankLine()]);
 
   const totalDebit = lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0);
   const totalCredit = lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
@@ -391,7 +410,8 @@ export function AccountingView() {
       setJournalOpen(false);
       setJournalDesc('');
       setJournalSourceType('MANUAL');
-      setLines([{ accountId: '', debit: '', credit: '' }, { accountId: '', debit: '', credit: '' }]);
+      setLines([blankLine(), blankLine()]);
+      setJournalDate(toLocalISODate(new Date()));
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -407,9 +427,22 @@ export function AccountingView() {
       toast.error('Add at least two complete lines');
       return;
     }
+    if (!journalDate) {
+      toast.error('Choose the date of this entry');
+      return;
+    }
+    const noProduct = validLines.find((l) => inventoryIds.has(Number(l.accountId)) && !l.productId);
+    if (noProduct) {
+      toast.error('Choose the product for every inventory line');
+      return;
+    }
+    // Today keeps the current time; any other day is recorded at 12:00 so no
+    // timezone shift can move it to a different calendar day.
+    const [y, m, d] = journalDate.split('-').map(Number);
+    const entryDate = journalDate === toLocalISODate(new Date()) ? new Date() : new Date(y, m - 1, d, 12, 0, 0);
     journalMutation.mutate({
       branchId: selectedBranchId,
-      entryDate: new Date().toISOString(),
+      entryDate: entryDate.toISOString(),
       description: journalDesc || undefined,
       sourceType: journalSourceType,
       postedByUserId: user?.id,
@@ -417,14 +450,23 @@ export function AccountingView() {
         accountId: Number(l.accountId),
         debit: Number(l.debit) || 0,
         credit: Number(l.credit) || 0,
+        productId: l.productId ? Number(l.productId) : undefined,
       })),
     });
   };
 
-  const addLine = () => setLines((ls) => [...ls, { accountId: '', debit: '', credit: '' }]);
+  const addLine = () => setLines((ls) => [...ls, blankLine()]);
   const removeLine = (idx: number) => setLines((ls) => ls.filter((_, i) => i !== idx));
-  const updateLine = (idx: number, field: 'accountId' | 'debit' | 'credit', value: string) =>
-    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
+  const updateLine = (idx: number, field: keyof JournalFormLine, value: string) =>
+    setLines((ls) =>
+      ls.map((l, i) => {
+        if (i !== idx) return l;
+        // choosing another account or category clears the product, so a stale choice can't slip through
+        if (field === 'accountId') return { ...l, accountId: value, category: '', productId: '' };
+        if (field === 'category') return { ...l, category: value, productId: '' };
+        return { ...l, [field]: value };
+      })
+    );
 
   // ---------------------------------------------------------------------------
   // Fixed Assets, Leases, Revenue Contracts, Inventory Valuations
@@ -738,14 +780,18 @@ export function AccountingView() {
             <CardTitle className="text-base flex items-center gap-2">
               <BookText className="h-4 w-4 text-brand-600" /> Journal Entries
             </CardTitle>
-            <Dialog open={journalOpen} onOpenChange={setJournalOpen}>
+            <Dialog open={journalOpen} onOpenChange={(o) => { setJournalOpen(o); if (o) setJournalOpenForQueries(true); }}>
               <DialogTrigger asChild>
                 <Button size="sm" className="bg-brand-600 hover:bg-brand-700"><Plus className="h-4 w-4 mr-1" /> New Journal Entry</Button>
               </DialogTrigger>
               <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader><DialogTitle>New Journal Entry</DialogTitle></DialogHeader>
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs">Entry Date</Label>
+                      <Input type="date" className="h-9" value={journalDate} max={toLocalISODate(new Date(Date.now() + 366 * 24 * 3600 * 1000))} onChange={(e) => setJournalDate(e.target.value)} />
+                    </div>
                     <div>
                       <Label className="text-xs">Source Type</Label>
                       <Select value={journalSourceType} onValueChange={setJournalSourceType}>
@@ -767,7 +813,8 @@ export function AccountingView() {
                       <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addLine}><Plus className="h-3 w-3 mr-1" /> Add Line</Button>
                     </div>
                     {lines.map((line, idx) => (
-                      <div key={idx} className="grid grid-cols-[1fr_100px_100px_32px] gap-2 items-center">
+                      <div key={idx} className="space-y-1.5">
+                      <div className="grid grid-cols-[1fr_100px_100px_32px] gap-2 items-center">
                         <Select value={line.accountId} onValueChange={(v) => updateLine(idx, 'accountId', v)}>
                           <SelectTrigger className="h-9"><SelectValue placeholder="Account" /></SelectTrigger>
                           <SelectContent>
@@ -779,6 +826,31 @@ export function AccountingView() {
                         <Button variant="ghost" size="icon" className="h-9 w-9 text-rose-600" onClick={() => removeLine(idx)} disabled={lines.length <= 2}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
+                      </div>
+                      {inventoryIds.has(Number(line.accountId)) && (
+                        <div className="grid grid-cols-2 gap-2 rounded-md border border-sky-200 bg-sky-50/60 p-2">
+                          <div>
+                            <Label className="text-[10px]">Category</Label>
+                            <Select value={line.category} onValueChange={(v) => updateLine(idx, 'category', v)}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All categories" /></SelectTrigger>
+                              <SelectContent>
+                                {productCategories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-[10px]">Product (required)</Label>
+                            <Select value={line.productId} onValueChange={(v) => updateLine(idx, 'productId', v)}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose the product" /></SelectTrigger>
+                              <SelectContent>
+                                {allProducts
+                                  .filter((p) => !line.category || p.category === line.category)
+                                  .map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.brandName}{p.genericName ? ` — ${p.genericName}` : ''}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
                       </div>
                     ))}
                   </div>
@@ -793,7 +865,7 @@ export function AccountingView() {
                     )}
                   </div>
 
-                  <Button className="w-full bg-brand-600 hover:bg-brand-700" disabled={!isBalanced || journalMutation.isPending} onClick={handlePostJournal}>
+                  <Button className="w-full bg-brand-600 hover:bg-brand-700" disabled={!isBalanced || !journalDate || journalMutation.isPending} onClick={handlePostJournal}>
                     {journalMutation.isPending ? 'Posting...' : 'Post Journal Entry'}
                   </Button>
                 </div>
@@ -822,7 +894,7 @@ export function AccountingView() {
                       <TableBody>
                         {entry.lines.map((line) => (
                           <TableRow key={line.id} className="border-0">
-                            <TableCell className="py-1 text-xs">{line.account.accountCode} — {line.account.accountName}</TableCell>
+                            <TableCell className="py-1 text-xs">{line.account.accountCode} — {line.account.accountName}{line.product ? <span className="text-muted-foreground"> · {line.product.brandName}</span> : null}</TableCell>
                             <TableCell className="py-1 text-xs text-right w-28">{line.debit > 0 ? formatMoney(line.debit, entry.currency.symbol) : ''}</TableCell>
                             <TableCell className="py-1 text-xs text-right w-28">{line.credit > 0 ? formatMoney(line.credit, entry.currency.symbol) : ''}</TableCell>
                           </TableRow>

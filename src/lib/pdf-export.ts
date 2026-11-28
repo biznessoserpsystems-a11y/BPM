@@ -88,6 +88,11 @@ export function exportReportToPdf({ title, subtitle, companyName, sections }: Pd
       headStyles: { fillColor: [22, 74, 58], textColor: 255 }, // matches the app's brand-700 green
       columnStyles: section.columnStyles,
       margin: { left: 14, right: 14 },
+      // autotable aligns only body cells from columnStyles; line the headings up with their numbers
+      didParseCell: (data) => {
+        const align = section.columnStyles?.[data.column.index]?.halign;
+        if (data.section === 'head' && align) data.cell.styles.halign = align;
+      },
     });
 
     y = (doc.lastAutoTable?.finalY ?? y) + 10;

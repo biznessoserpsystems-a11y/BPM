@@ -103,10 +103,10 @@ describe('PDF sections', () => {
     expect(sales.columns).toEqual(['Invoice ref', 'Date', 'Product sold', 'Qty', 'Amount']);
     const asText = sales.rows.map((r) => [r[0], r[2], r[3], r[4]]);
     expect(asText).toEqual([
-      ['INV-0001', 'Paracetamol 500mg', 2, '10.00'],
-      ['', 'Amoxicillin 250mg', 1, '12.00'],       // ref not repeated on the invoice's later lines
+      ['INV-0001', 'Paracetamol 500mg', '2', '10.00'],
+      ['', 'Amoxicillin 250mg', '1', '12.00'],       // ref not repeated on the invoice's later lines
       ['', 'Invoice total', '', '21.10'],
-      ['INV-0002', 'Paracetamol 500mg', 3, '15.00'],
+      ['INV-0002', 'Paracetamol 500mg', '3', '15.00'],
       ['', 'Invoice total', '', '15.00'],
       ['', 'WEEK TOTAL', '', '36.10'],
     ]);

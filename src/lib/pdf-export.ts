@@ -19,6 +19,14 @@ export interface PdfExportOptions {
   sections: PdfSection[];
 }
 
+/**
+ * The PDF's built-in font has no cedi sign (₵), so it printed as garbled
+ * "G H µ 1 2 . 0 0". Write the currency code instead: "GH₵12.00" → "GHS 12.00".
+ */
+export function pdfSafeText(text: string): string {
+  return text.replace(/GH\u20B5\s*/g, 'GHS ').replace(/\u20B5\s*/g, 'GHS ');
+}
+
 const PAGE_BOTTOM_MARGIN = 275; // A4 is 297mm tall; leaves room before a new page is needed
 
 /**
@@ -36,20 +44,20 @@ export function exportReportToPdf({ title, subtitle, companyName, sections }: Pd
   if (companyName) {
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
-    doc.text(companyName, 14, y);
+    doc.text(pdfSafeText(companyName), 14, y);
     y += 7;
   }
 
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.text(title, 14, y);
+  doc.text(pdfSafeText(title), 14, y);
   y += 7;
 
   if (subtitle) {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100);
-    doc.text(subtitle, 14, y);
+    doc.text(pdfSafeText(subtitle), 14, y);
     doc.setTextColor(0);
     y += 6;
   }
@@ -68,18 +76,23 @@ export function exportReportToPdf({ title, subtitle, companyName, sections }: Pd
     if (section.heading) {
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
-      doc.text(section.heading, 14, y + 4);
+      doc.text(pdfSafeText(section.heading), 14, y + 4);
       y += 8;
     }
 
     autoTable(doc, {
       startY: y,
-      head: [section.columns],
-      body: section.rows.map((row) => row.map((cell) => (typeof cell === 'number' ? cell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : cell))),
+      head: [section.columns.map(pdfSafeText)],
+      body: section.rows.map((row) => row.map((cell) => (typeof cell === 'number' ? cell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : pdfSafeText(cell)))),
       styles: { fontSize: 9, cellPadding: 2.5 },
       headStyles: { fillColor: [22, 74, 58], textColor: 255 }, // matches the app's brand-700 green
       columnStyles: section.columnStyles,
       margin: { left: 14, right: 14 },
+      // autotable aligns only body cells from columnStyles; line the headings up with their numbers
+      didParseCell: (data) => {
+        const align = section.columnStyles?.[data.column.index]?.halign;
+        if (data.section === 'head' && align) data.cell.styles.halign = align;
+      },
     });
 
     y = (doc.lastAutoTable?.finalY ?? y) + 10;

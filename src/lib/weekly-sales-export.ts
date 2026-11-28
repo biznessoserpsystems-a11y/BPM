@@ -117,8 +117,8 @@ export function weeklySalesToPdfSections(report: WeeklySalesReport, money: Forma
   const s = report.summary;
 
   const summaryRows: (string | number)[][] = [
-    ['Invoices', s.invoiceCount],
-    ['Items sold', s.itemsSold],
+    ['Invoices', String(s.invoiceCount)],
+    ['Items sold', String(s.itemsSold)],
     ['Sales before discount and tax', money(s.grossSales)],
     ['Discounts', `(${money(s.discounts)})`],
     ['Tax', money(s.tax)],
@@ -135,7 +135,7 @@ export function weeklySalesToPdfSections(report: WeeklySalesReport, money: Forma
         i === 0 ? inv.invoiceNumber : '',
         i === 0 ? whenOf(inv.saleDate) : '',
         item.productName,
-        item.quantity,
+        String(item.quantity), // a count, not money: the PDF exporter would print a number as 2.00
         money(item.amount),
       ]);
     });
@@ -148,7 +148,7 @@ export function weeklySalesToPdfSections(report: WeeklySalesReport, money: Forma
     {
       heading: 'By day',
       columns: ['Day', 'Date', 'Invoices', 'Total'],
-      rows: report.days.map((d) => [d.label, d.date, d.invoiceCount, money(d.total)]),
+      rows: report.days.map((d) => [d.label, d.date, String(d.invoiceCount), money(d.total)]),
       columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' } },
     },
     {

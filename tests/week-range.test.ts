@@ -70,3 +70,16 @@ describe('stepping between weeks', () => {
     expect(parseLocalDate('2028-02-29')).not.toBeNull();
   });
 });
+
+describe('dayRangeFor (Daily Sales Report)', () => {
+  it('covers exactly one local day', async () => {
+    const { dayRangeFor, shiftDay } = await import('../src/lib/week-range');
+    const r = dayRangeFor('2026-11-18');
+    expect(r.weekStart).toBe('2026-11-18');
+    expect(r.weekEnd).toBe('2026-11-18');
+    expect(r.days).toEqual([{ date: '2026-11-18', label: 'Wed' }]);
+    expect(r.to.getTime() - r.from.getTime()).toBe(24 * 3600 * 1000);
+    expect(shiftDay('2026-11-30', 1)).toBe('2026-12-01');
+    expect(() => dayRangeFor('2026-02-30')).toThrow();
+  });
+});

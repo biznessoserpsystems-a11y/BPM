@@ -31,7 +31,9 @@ function baseReport(over: Partial<WeeklySalesReport> = {}): WeeklySalesReport {
     summary: { invoiceCount: 2, itemsSold: 6, grossSales: 37, discounts: 2, tax: 1.1, totalSales: 36.1, returnsTotal: 0, netSales: 36.1 },
     days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, i) => ({
       date: `2026-11-${16 + i}`, label, invoiceCount: label === 'Wed' || label === 'Fri' ? 1 : 0,
+      itemsSold: label === 'Wed' ? 3 : label === 'Fri' ? 3 : 0, discounts: label === 'Wed' ? 2 : 0, tax: label === 'Wed' ? 1.1 : 0,
       total: label === 'Wed' ? 21.1 : label === 'Fri' ? 15 : 0,
+      returns: 0, net: label === 'Wed' ? 21.1 : label === 'Fri' ? 15 : 0,
     })),
     invoices: [
       {
@@ -53,7 +55,7 @@ function baseReport(over: Partial<WeeklySalesReport> = {}): WeeklySalesReport {
 function screen(role: 'ADMIN' | 'EMPLOYEE', report: WeeklySalesReport): string {
   signedIn.user = { id: 1, roleName: role, homeBranchId: 'BR-1' };
   const client = new QueryClient();
-  client.setQueryData(['weekly-sales', '2026-11-16', role === 'ADMIN' ? '__all__' : 'own'], report);
+  client.setQueryData(['weekly-sales', 'week', '2026-11-16', role === 'ADMIN' ? '__all__' : 'own'], report);
   client.setQueryData(['currencies'], [{ id: 1, code: 'GHS', name: 'Cedi', symbol: 'GH₵', decimalPlaces: 2, isBaseCurrency: true }]);
   client.setQueryData(['my-company'], { id: 'c', name: 'CharlieBliss Pharmacy', code: 'cb' });
   client.setQueryData(['branches', 'all'], [{ id: 'BR-1', name: 'Main Branch', isActive: true }]);
@@ -95,13 +97,13 @@ describe('Weekly Sales screen', () => {
     expect(text).toContain('GH₵36.10');
   });
 
-  it('shows the headline numbers and the day-by-day strip', () => {
+  it('shows the headline numbers and the Daily sales summary', () => {
     const text = screen('ADMIN', baseReport());
     expect(text).toMatch(/Invoices 2/);
     expect(text).toMatch(/Items sold 6/);
     for (const d of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) expect(text).toContain(d);
-    expect(text).toContain('1 invoice ');
-    expect(text).toContain('0 invoices');
+    expect(text).toContain('Daily sales summary');
+    expect(text).toContain('Net sales');
   });
 
   it('flags a line that was partly returned', () => {
@@ -144,7 +146,7 @@ describe('Weekly Sales screen', () => {
     const html = (() => {
       signedIn.user = { id: 1, roleName: 'ADMIN', homeBranchId: 'BR-1' };
       const client = new QueryClient();
-      client.setQueryData(['weekly-sales', '2026-11-16', '__all__'], baseReport());
+      client.setQueryData(['weekly-sales', 'week', '2026-11-16', '__all__'], baseReport());
       client.setQueryData(['currencies'], []);
       return renderToString(createElement(QueryClientProvider, { client }, createElement(WeeklySalesSection)));
     })();

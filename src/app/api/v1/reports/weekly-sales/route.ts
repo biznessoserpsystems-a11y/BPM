@@ -4,7 +4,7 @@ import { handleApiError } from '@/lib/api-error';
 import { PharmacyServiceError } from '@/lib/errors';
 import { getAuthPayload, isAuthError } from '@/lib/auth';
 import { canAccessBranch, getCompanyBranchIds } from '@/lib/branch-access';
-import { toLocalISODate, weekRangeFor } from '@/lib/week-range';
+import { dayRangeFor, toLocalISODate, weekRangeFor } from '@/lib/week-range';
 
 // Weekly Sales Report: every invoice in one Monday–Sunday week, with the
 // products sold on it and the amounts.
@@ -13,6 +13,8 @@ import { toLocalISODate, weekRangeFor } from '@/lib/week-range';
 //
 //   date      any day in the week wanted (aligned to its Monday); omit for
 //             the current week
+//   period    'week' (default) or 'day' — the Daily Sales Report is the same
+//             report for the single day `date`
 //   branchId  one branch; omit for "everything I'm allowed to see"
 //
 // Who sees what is the same as Sales History: an Admin or Manager can look at
@@ -30,7 +32,9 @@ export async function GET(request: NextRequest) {
     const auth = getAuthPayload(request);
     if (isAuthError(auth)) return auth;
 
-    const range = weekRangeFor(request.nextUrl.searchParams.get('date'));
+    const period = request.nextUrl.searchParams.get('period') === 'day' ? 'day' : 'week';
+    const dateParam = request.nextUrl.searchParams.get('date');
+    const range = period === 'day' ? dayRangeFor(dateParam) : weekRangeFor(dateParam);
 
     const requestedBranchId = request.nextUrl.searchParams.get('branchId') || undefined;
     if (requestedBranchId && !(await canAccessBranch(db, auth, requestedBranchId))) {
@@ -67,7 +71,9 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    const dayTotals = new Map(range.days.map((d) => [d.date, { invoiceCount: 0, total: 0 }]));
+    const dayTotals = new Map(
+      range.days.map((d) => [d.date, { invoiceCount: 0, itemsSold: 0, discounts: 0, tax: 0, total: 0, returns: 0 }]),
+    );
     let itemsSold = 0;
     let grossSales = 0;
     let discounts = 0;
@@ -75,8 +81,10 @@ export async function GET(request: NextRequest) {
     let totalSales = 0;
 
     const invoices = sales.map((sale) => {
+      const saleDay = dayTotals.get(toLocalISODate(sale.saleDate));
       const items = sale.saleItems.map((item) => {
         itemsSold += item.quantity;
+        if (saleDay) saleDay.itemsSold += item.quantity;
         grossSales += item.subtotal;
         return {
           productName: item.product.brandName,
@@ -92,10 +100,11 @@ export async function GET(request: NextRequest) {
       discounts += sale.discountAmount;
       tax += sale.taxAmount;
       totalSales += sale.totalAmount;
-      const day = dayTotals.get(toLocalISODate(sale.saleDate));
-      if (day) {
-        day.invoiceCount += 1;
-        day.total += sale.totalAmount;
+      if (saleDay) {
+        saleDay.invoiceCount += 1;
+        saleDay.discounts += sale.discountAmount;
+        saleDay.tax += sale.taxAmount;
+        saleDay.total += sale.totalAmount;
       }
       return {
         id: sale.id,
@@ -114,8 +123,14 @@ export async function GET(request: NextRequest) {
     });
 
     const returnsTotal = returns.reduce((n, r) => n + r.totalAmount, 0);
+    // A return counts on the day the money went back, not the day of the sale.
+    for (const r of returns) {
+      const day = dayTotals.get(toLocalISODate(r.returnDate));
+      if (day) day.returns += r.totalAmount;
+    }
 
     return NextResponse.json({
+      period,
       weekStart: range.weekStart,
       weekEnd: range.weekEnd,
       branchId: requestedBranchId ?? null,
@@ -134,7 +149,12 @@ export async function GET(request: NextRequest) {
         date: d.date,
         label: d.label,
         invoiceCount: dayTotals.get(d.date)!.invoiceCount,
+        itemsSold: dayTotals.get(d.date)!.itemsSold,
+        discounts: tidy(dayTotals.get(d.date)!.discounts),
+        tax: tidy(dayTotals.get(d.date)!.tax),
         total: tidy(dayTotals.get(d.date)!.total),
+        returns: tidy(dayTotals.get(d.date)!.returns),
+        net: tidy(dayTotals.get(d.date)!.total - dayTotals.get(d.date)!.returns),
       })),
       invoices,
       returns: returns.map((r) => ({

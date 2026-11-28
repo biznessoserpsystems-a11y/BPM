@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/table';
 import { TrendingUp, Landmark, Wallet, AlertTriangle, CheckCircle2, Scale, FileClock, Download, BarChart3, CalendarDays } from 'lucide-react';
 import { BusinessAnalysisSection } from '@/components/views/business-analysis-section';
-import { WeeklySalesSection } from '@/components/views/weekly-sales-section';
+import { DailySalesSection, WeeklySalesSection } from '@/components/views/weekly-sales-section';
 import { usePharmacyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { formatMoney } from '@/lib/currency';
@@ -373,6 +373,7 @@ export function ReportsView() {
   return (
     <Tabs defaultValue="income" className="space-y-4">
       <TileTabsList>
+        <TileTabsTrigger value="daily-sales" icon={CalendarDays} label="Daily Sales" color="orange" />
         <TileTabsTrigger value="weekly-sales" icon={CalendarDays} label="Weekly Sales" color="orange" />
         <TileTabsTrigger value="income" icon={TrendingUp} label="Income Statement" color="brand" />
         <TileTabsTrigger value="balance" icon={Landmark} label="Balance Sheet" color="sky" />
@@ -384,6 +385,10 @@ export function ReportsView() {
       </TileTabsList>
 
       {/* Business Analysis */}
+      <TabsContent value="daily-sales">
+        <DailySalesSection />
+      </TabsContent>
+
       <TabsContent value="weekly-sales">
         <WeeklySalesSection />
       </TabsContent>

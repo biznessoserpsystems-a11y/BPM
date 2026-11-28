@@ -84,3 +84,32 @@ export function shiftWeek(weekStart: string, weeks: number): string {
   const d = parseLocalDate(weekStart) ?? new Date();
   return toLocalISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + weeks * 7));
 }
+
+/**
+ * A single day, shaped like a one-day "week" so the Daily Sales Report can
+ * share the weekly report's code. `date` blank means today.
+ */
+export function dayRangeFor(date: string | null | undefined, now: Date = new Date()): WeekRange {
+  let day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (date) {
+    const parsed = parseLocalDate(date);
+    if (!parsed || parsed.getFullYear() < 2000 || parsed.getFullYear() > 2100) {
+      throw new PharmacyServiceError('date must be a real date in YYYY-MM-DD format');
+    }
+    day = parsed;
+  }
+  const iso = toLocalISODate(day);
+  return {
+    weekStart: iso,
+    weekEnd: iso,
+    from: day,
+    to: new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1),
+    days: [{ date: iso, label: DAY_LABELS[day.getDay()] }],
+  };
+}
+
+/** The date `days` days after (or before, if negative) `date`. */
+export function shiftDay(date: string, days: number): string {
+  const d = parseLocalDate(date) ?? new Date();
+  return toLocalISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
+}

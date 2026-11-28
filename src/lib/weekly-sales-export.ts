@@ -31,7 +31,21 @@ export interface WeeklySalesInvoice {
   items: WeeklySalesItem[];
 }
 
+export interface WeeklySalesDay {
+  date: string;
+  label: string;
+  invoiceCount: number;
+  itemsSold: number;
+  discounts: number;
+  tax: number;
+  total: number;
+  returns: number;
+  net: number;
+}
+
 export interface WeeklySalesReport {
+  /** 'day' for the Daily Sales Report; absent or 'week' for the weekly one. */
+  period?: 'week' | 'day';
   weekStart: string;
   weekEnd: string;
   branchId: string | null;
@@ -45,7 +59,7 @@ export interface WeeklySalesReport {
     returnsTotal: number;
     netSales: number;
   };
-  days: { date: string; label: string; invoiceCount: number; total: number }[];
+  days: WeeklySalesDay[];
   invoices: WeeklySalesInvoice[];
   returns: { returnNumber: string; returnDate: string; invoiceNumber: string; reason: string | null; amount: number }[];
 }
@@ -105,8 +119,8 @@ export function weeklySalesToCsv(report: WeeklySalesReport): string {
   return '\uFEFF' + [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 
-export function weeklySalesFileName(report: Pick<WeeklySalesReport, 'weekStart'>, ext: 'csv' | 'pdf'): string {
-  return `weekly-sales-${report.weekStart}.${ext}`;
+export function weeklySalesFileName(report: Pick<WeeklySalesReport, 'weekStart' | 'period'>, ext: 'csv' | 'pdf'): string {
+  return `${report.period === 'day' ? 'daily' : 'weekly'}-sales-${report.weekStart}.${ext}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +139,7 @@ export function weeklySalesToPdfSections(report: WeeklySalesReport, money: Forma
     ['Total sales', money(s.totalSales)],
   ];
   if (s.returnsTotal > 0) {
-    summaryRows.push(['Returns this week', `(${money(s.returnsTotal)})`], ['Net sales', money(s.netSales)]);
+    summaryRows.push([report.period === 'day' ? 'Returns today' : 'Returns this week', `(${money(s.returnsTotal)})`], ['Net sales', money(s.netSales)]);
   }
 
   const lineRows: (string | number)[][] = [];
@@ -141,16 +155,39 @@ export function weeklySalesToPdfSections(report: WeeklySalesReport, money: Forma
     });
     lineRows.push(['', '', 'Invoice total', '', money(inv.totalAmount)]);
   }
-  if (report.invoices.length > 0) lineRows.push(['', '', 'WEEK TOTAL', '', money(s.totalSales)]);
+  if (report.invoices.length > 0) lineRows.push(['', '', report.period === 'day' ? 'DAY TOTAL' : 'WEEK TOTAL', '', money(s.totalSales)]);
 
   const sections: PdfSection[] = [
     { heading: 'Summary', columns: ['Measure', 'Value'], rows: summaryRows, columnStyles: { 1: { halign: 'right' } } },
-    {
-      heading: 'By day',
-      columns: ['Day', 'Date', 'Invoices', 'Total'],
-      rows: report.days.map((d) => [d.label, d.date, String(d.invoiceCount), money(d.total)]),
-      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' } },
-    },
+    ...(report.period === 'day'
+      ? []
+      : [
+          {
+            heading: 'Daily sales summary',
+            columns: ['Day', 'Date', 'Invoices', 'Items', 'Total sales', 'Returns', 'Net sales'],
+            rows: [
+              ...report.days.map((d) => [
+                d.label,
+                d.date,
+                String(d.invoiceCount),
+                String(d.itemsSold),
+                money(d.total),
+                d.returns > 0 ? `(${money(d.returns)})` : '-',
+                money(d.net),
+              ]),
+              [
+                'Week',
+                '',
+                String(s.invoiceCount),
+                String(s.itemsSold),
+                money(s.totalSales),
+                s.returnsTotal > 0 ? `(${money(s.returnsTotal)})` : '-',
+                money(s.netSales),
+              ],
+            ],
+            columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+          } as PdfSection,
+        ]),
     {
       heading: 'Sales',
       columns: ['Invoice ref', 'Date', 'Product sold', 'Qty', 'Amount'],
@@ -161,7 +198,7 @@ export function weeklySalesToPdfSections(report: WeeklySalesReport, money: Forma
 
   if (report.returns.length > 0) {
     sections.push({
-      heading: 'Returns made this week',
+      heading: report.period === 'day' ? 'Returns made today' : 'Returns made this week',
       columns: ['Return', 'Date', 'Invoice ref', 'Amount'],
       rows: report.returns.map((r) => [r.returnNumber, whenOf(r.returnDate), r.invoiceNumber, `(${money(r.amount)})`]),
       columnStyles: { 3: { halign: 'right' } },

@@ -80,7 +80,7 @@ const whenOf = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm');
  * `=HYPERLINK(...)` would run when the file is opened. Prefixing an
  * apostrophe makes it plain text. Numbers are written as numbers, untouched.
  */
-function csvCell(value: string | number | null): string {
+export function csvCell(value: string | number | null): string {
   if (value === null || value === '') return '';
   if (typeof value === 'number') return String(value);
   let s = value;

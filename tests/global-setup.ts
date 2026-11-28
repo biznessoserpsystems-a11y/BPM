@@ -17,7 +17,7 @@ import { PrismaClient } from '@prisma/client';
 export default async function globalSetup() {
   const prisma = new PrismaClient();
   try {
-    for (const roleName of ['ADMIN', 'MANAGER', 'PHARMACIST', 'TECHNICIAN']) {
+    for (const roleName of ['ADMIN', 'MANAGER', 'EMPLOYEE', 'PHARMACIST', 'TECHNICIAN']) {
       await prisma.role.upsert({
         where: { roleName },
         update: {},

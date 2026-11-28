@@ -78,10 +78,10 @@ export function InventoryPermissionsSection() {
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
-          <PackageCheck className="h-4 w-4 text-slate-600" /> Inventory Permissions
+          <PackageCheck className="h-4 w-4 text-slate-600" /> Inventory &amp; Sales Permissions
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Choose who can edit received stock, change expiry dates, and make stock adjustments. Leave a person on their
+          Choose who can edit received stock, change expiry dates, make stock adjustments, and edit sales. Leave a person on their
           role&apos;s default, grant them something their role doesn&apos;t include, or take away something it does.
           Changes apply straight away and are recorded in the Audit Log. Only an Admin can change these — and
           Administrators always have all of them.

@@ -40,6 +40,20 @@ export const INVENTORY_PERMISSIONS = [
     // adjust stock before suddenly can't.
     defaultRoles: ['ADMIN', 'MANAGER', 'EMPLOYEE'],
   },
+  {
+    key: 'sales.edit_today',
+    label: 'Edit today\u2019s sales',
+    description:
+      'Correct a sale made today: customer details, payment method, quantities, prices, discount and tax. Stock and the books are corrected to match. Cashiers can only change their own sales; a reason is required and recorded.',
+    defaultRoles: ['ADMIN', 'MANAGER', 'EMPLOYEE'],
+  },
+  {
+    key: 'sales.edit_past',
+    label: 'Edit previous days\u2019 sales',
+    description:
+      'The same corrections on a sale from an earlier day, for any cashier. Needs an open accounting period. Admin only until an Admin grants it.',
+    defaultRoles: ['ADMIN'],
+  },
 ] as const;
 
 export type InventoryPermissionKey = (typeof INVENTORY_PERMISSIONS)[number]['key'];

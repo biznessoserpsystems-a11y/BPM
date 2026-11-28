@@ -271,11 +271,11 @@ describe('granting access', () => {
   });
 
   it("each person's own permissions are reported correctly, including after a grant and a denial", async () => {
-    expect(await mine(ctx.admin)).toEqual({ 'inventory.edit': true, 'inventory.edit_expiry': true, 'inventory.adjust': true });
-    expect(await mine(manager)).toEqual({ 'inventory.edit': false, 'inventory.edit_expiry': false, 'inventory.adjust': true });
+    expect(await mine(ctx.admin)).toMatchObject({ 'inventory.edit': true, 'inventory.edit_expiry': true, 'inventory.adjust': true });
+    expect(await mine(manager)).toMatchObject({ 'inventory.edit': false, 'inventory.edit_expiry': false, 'inventory.adjust': true });
     await grant(ctx, ctx.admin, manager, 'inventory.edit_expiry', 'ALLOW');
     await grant(ctx, ctx.admin, manager, 'inventory.adjust', 'DENY');
-    expect(await mine(manager)).toEqual({ 'inventory.edit': false, 'inventory.edit_expiry': true, 'inventory.adjust': false });
+    expect(await mine(manager)).toMatchObject({ 'inventory.edit': false, 'inventory.edit_expiry': true, 'inventory.adjust': false });
   });
 
   it('only an Admin can grant — a Manager cannot grant themselves or anyone else', async () => {

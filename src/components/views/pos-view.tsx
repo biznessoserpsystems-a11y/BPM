@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
+import { EditSaleDialog, type EditableSale } from '@/components/views/edit-sale-dialog';
+import { useInventoryPermissions } from '@/hooks/use-inventory-permissions';
 import {
   Search,
   Plus,
@@ -43,6 +45,7 @@ import {
   AlertCircle,
   History,
   RotateCcw,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -549,7 +552,19 @@ interface SaleRecord {
 }
 
 function SalesHistorySection() {
-  const { selectedBranchId } = usePharmacyStore();
+  const { selectedBranchId, user } = usePharmacyStore();
+  const { canEditSaleToday, canEditSalePast } = useInventoryPermissions();
+  const [editTarget, setEditTarget] = useState<SaleRecord | null>(null);
+  // Mirrors the server's rule (which is what actually decides): today's sales
+  // need the "today" permission (cashiers: their own only), earlier days need "past".
+  const canEdit = (s: SaleRecord) => {
+    const d = new Date(s.saleDate);
+    const t = new Date();
+    const sameDay = d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+    if (!sameDay) return canEditSalePast;
+    const own = (s as SaleRecord & { userId?: number }).userId === user?.id;
+    return canEditSaleToday && (user?.roleName === 'ADMIN' || user?.roleName === 'MANAGER' || own);
+  };
   const baseCurrency = useBaseCurrency();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -645,7 +660,12 @@ function SalesHistorySection() {
                       <td className="p-3"><Badge variant="outline" className="text-xs">{s.paymentMethod}</Badge></td>
                       <td className="p-3 text-xs text-muted-foreground">{format(new Date(s.saleDate), 'MMM d, yyyy h:mm a')}</td>
                       <td className="p-3 text-sm text-right font-medium">{formatMoney(s.totalAmount, baseCurrency)}</td>
-                      <td className="p-3">
+                      <td className="p-3 whitespace-nowrap space-x-1">
+                        {canEdit(s) && (
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditTarget(s)}>
+                            <Pencil className="h-3 w-3 mr-1" /> Edit
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -713,6 +733,7 @@ function SalesHistorySection() {
           </div>
         </DialogContent>
       </Dialog>
+      <EditSaleDialog sale={editTarget as EditableSale | null} onClose={() => setEditTarget(null)} />
     </Card>
   );
 }
